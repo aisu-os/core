@@ -1,9 +1,13 @@
-from fastapi import Depends, HTTPException, Security, status
+from collections.abc import Awaitable, Callable
+
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aiso_core.config import settings
 from aiso_core.database import get_db
 from aiso_core.models.user import User
+from aiso_core.utils.rate_limiter import get_rate_limiter
 from aiso_core.utils.security import decode_token
 
 security = HTTPBearer()
@@ -70,3 +74,29 @@ async def get_admin_user(
             detail="Admin role is required",
         )
     return current_user
+
+
+def _get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
+def rate_limit(limit: int, window_seconds: int) -> Callable[[Request], Awaitable[None]]:
+    async def _check(request: Request) -> None:
+        client_ip = _get_client_ip(request)
+        key = f"{request.url.path}:{client_ip}"
+        limiter = get_rate_limiter()
+        await limiter.hit(key=key, limit=limit, window_seconds=window_seconds)
+
+    return _check
+
+
+def rate_limit_username_info() -> Callable[[Request], Awaitable[None]]:
+    return rate_limit(
+        limit=settings.rate_limit_username_info_per_minute,
+        window_seconds=settings.rate_limit_window_seconds,
+    )

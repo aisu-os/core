@@ -47,3 +47,15 @@ class RegisterResponse(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class UsernameInfoResponse(BaseModel):
+    avatar_url: str | None = None
+    display_name: str
+    wallpaper: str
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("avatar_url")
+    def _serialize_avatar_url(self, value: str | None) -> str | None:
+        return with_full_url(value)
