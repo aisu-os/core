@@ -31,11 +31,11 @@ class AuthService:
         # Email formatini tekshirish
         try:
             _email_adapter.validate_python(email)
-        except Exception:
+        except Exception as err:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Email formati noto'g'ri",
-            )
+                detail="Invalid email format",
+            ) from err
 
         # Email mavjudligini tekshirish
         stmt = select(User).where(User.email == email)
@@ -43,7 +43,7 @@ class AuthService:
         if result.scalar_one_or_none() is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Bu email allaqachon ro'yxatdan o'tgan",
+                detail="This email is already registered",
             )
 
         # Username mavjudligini tekshirish
@@ -52,7 +52,7 @@ class AuthService:
         if result.scalar_one_or_none() is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Bu username allaqachon band",
+                detail="This username is already taken",
             )
 
         user_id = uuid.uuid4()
