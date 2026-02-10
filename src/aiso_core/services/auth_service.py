@@ -1,19 +1,43 @@
-from fastapi import HTTPException, status
+import uuid
+
+from fastapi import HTTPException, UploadFile, status
+from pydantic import EmailStr, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aiso_core.config import settings
 from aiso_core.models.user import User
-from aiso_core.schemas.user import TokenResponse, UserCreate, UserLogin, UserResponse
+from aiso_core.schemas.user import RegisterResponse, TokenResponse, UserLogin
+from aiso_core.utils.file_upload import save_avatar
 from aiso_core.utils.security import create_access_token, hash_password, verify_password
+
+_email_adapter = TypeAdapter(EmailStr)
 
 
 class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def register(self, data: UserCreate) -> UserResponse:
+    async def register(
+        self,
+        email: str,
+        username: str,
+        display_name: str,
+        password: str,
+        avatar: UploadFile | None = None,
+        avatar_emoji: str | None = None,
+    ) -> RegisterResponse:
+        # Email formatini tekshirish
+        try:
+            _email_adapter.validate_python(email)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Email formati noto'g'ri",
+            )
+
         # Email mavjudligini tekshirish
-        stmt = select(User).where(User.email == data.email)
+        stmt = select(User).where(User.email == email)
         result = await self.db.execute(stmt)
         if result.scalar_one_or_none() is not None:
             raise HTTPException(
@@ -22,7 +46,7 @@ class AuthService:
             )
 
         # Username mavjudligini tekshirish
-        stmt = select(User).where(User.username == data.username)
+        stmt = select(User).where(User.username == username)
         result = await self.db.execute(stmt)
         if result.scalar_one_or_none() is not None:
             raise HTTPException(
@@ -30,17 +54,31 @@ class AuthService:
                 detail="Bu username allaqachon band",
             )
 
+        user_id = uuid.uuid4()
+
+        # Avatar URL aniqlash
+        avatar_url: str | None = None
+        if avatar and avatar.filename:
+            avatar_url = await save_avatar(avatar, user_id, settings.upload_dir)
+        elif avatar_emoji:
+            avatar_url = avatar_emoji
+
         user = User(
-            email=data.email,
-            username=data.username,
-            display_name=data.display_name,
-            hashed_password=hash_password(data.password),
+            id=user_id,
+            email=email,
+            username=username,
+            display_name=display_name,
+            hashed_password=hash_password(password),
+            avatar_url=avatar_url,
+            cpu=settings.default_user_cpu,
+            disk=settings.default_user_disk,
+            wallpaper=settings.default_user_wallpaper,
         )
         self.db.add(user)
         await self.db.flush()
         await self.db.refresh(user)
 
-        return UserResponse.model_validate(user)
+        return RegisterResponse.model_validate(user)
 
     async def login(self, data: UserLogin) -> TokenResponse:
         stmt = select(User).where(User.email == data.email)

@@ -29,6 +29,14 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RegisterResponse(BaseModel):
+    username: str
+    avatar_url: str | None = None
+    wallpaper: str
+
+    model_config = {"from_attributes": True}
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

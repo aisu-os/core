@@ -32,5 +32,10 @@ class Settings(BaseSettings):
     # File storage
     upload_dir: str = "./uploads"
 
+    # User defaults
+    default_user_cpu: int = 2
+    default_user_disk: int = 5120  # MB (5GB)
+    default_user_wallpaper: str = "https://images.aisu.run/wallpaper_image.jpg"
+
 
 settings = Settings()

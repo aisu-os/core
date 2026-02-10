@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from aiso_core.models.base import Base, TimestampMixin, UUIDMixin
@@ -16,6 +17,10 @@ class User(Base, UUIDMixin, TimestampMixin):
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    cpu: Mapped[int] = mapped_column(Integer, default=2)
+    disk: Mapped[int] = mapped_column(Integer, default=5120)
+    wallpaper: Mapped[str] = mapped_column(String(500), default="default.jpg")
+    meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
 
     # Relationships
     apps: Mapped[list[App]] = relationship(  # noqa: F821
