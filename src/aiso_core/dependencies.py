@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, Request, Security, status
@@ -25,12 +26,20 @@ async def get_current_user(
             detail="Invalid token",
         )
 
-    user_id = payload.get("sub")
-    if user_id is None:
+    raw_user_id = payload.get("sub")
+    if raw_user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
         )
+
+    try:
+        user_id = uuid.UUID(raw_user_id)
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        ) from err
 
     user = await db.get(User, user_id)
     if user is None:

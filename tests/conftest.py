@@ -10,6 +10,7 @@ from aiso_core.config import settings
 from aiso_core.database import get_db
 from aiso_core.main import app
 from aiso_core.models.user import User
+from aiso_core.utils.rate_limiter import get_rate_limiter
 
 
 @compiles(UUID, "sqlite")
@@ -66,6 +67,8 @@ async def client(
     upload_dir = tmp_path / "uploads"
     monkeypatch.setattr(settings, "upload_dir", str(upload_dir))
     monkeypatch.setattr(settings, "app_url", "http://testserver")
+    monkeypatch.setattr(settings, "rate_limit_backend", "memory")
+    get_rate_limiter.cache_clear()
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with async_session_factory() as session:
