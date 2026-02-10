@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
 
 class RegisterResponse(BaseModel):
     username: str
+    display_name: str
     avatar_url: str | None = None
     wallpaper: str
 

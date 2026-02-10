@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # Server
     host: str = "0.0.0.0"
     port: int = 8890
+    app_url: str = "http://localhost:8890"
 
     # Database
     database_url: str = "postgresql+asyncpg://aisu:aisu@localhost:5432/aisu"

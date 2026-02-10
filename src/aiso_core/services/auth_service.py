@@ -9,6 +9,7 @@ from aiso_core.config import settings
 from aiso_core.models.user import User
 from aiso_core.schemas.user import RegisterResponse, TokenResponse, UserLogin
 from aiso_core.utils.file_upload import save_avatar
+from aiso_core.utils.helpers import with_full_url
 from aiso_core.utils.security import create_access_token, hash_password, verify_password
 
 _email_adapter = TypeAdapter(EmailStr)
@@ -78,7 +79,12 @@ class AuthService:
         await self.db.flush()
         await self.db.refresh(user)
 
-        return RegisterResponse.model_validate(user)
+        return RegisterResponse(
+            username=user.username,
+            display_name=user.display_name,
+            avatar_url=with_full_url(user.avatar_url),
+            wallpaper=user.wallpaper,
+        )
 
     async def login(self, data: UserLogin) -> TokenResponse:
         stmt = select(User).where(User.email == data.email)
