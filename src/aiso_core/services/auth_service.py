@@ -23,6 +23,10 @@ _email_adapter = TypeAdapter(EmailStr)
 class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._default_wallpaper = settings.default_user_wallpaper
+
+    def _resolve_wallpaper(self, wallpaper: str | None) -> str:
+        return wallpaper or self._default_wallpaper
 
     async def register(
         self,
@@ -78,7 +82,7 @@ class AuthService:
             avatar_url=avatar_url,
             cpu=settings.default_user_cpu,
             disk=settings.default_user_disk,
-            wallpaper=settings.default_user_wallpaper,
+            wallpaper=None,
         )
         self.db.add(user)
         await self.db.flush()
@@ -88,7 +92,7 @@ class AuthService:
             username=user.username,
             display_name=user.display_name,
             avatar_url=with_full_url(user.avatar_url),
-            wallpaper=user.wallpaper,
+            wallpaper=self._resolve_wallpaper(user.wallpaper),
         )
 
     async def login(self, data: UserLogin) -> TokenResponse:
@@ -125,5 +129,5 @@ class AuthService:
         return UsernameInfoResponse(
             avatar_url=user.avatar_url,
             display_name=user.display_name,
-            wallpaper=user.wallpaper,
+            wallpaper=self._resolve_wallpaper(user.wallpaper),
         )
