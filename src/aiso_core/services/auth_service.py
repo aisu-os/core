@@ -94,13 +94,13 @@ class AuthService:
         if user is None or not verify_password(data.password, user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Email yoki parol noto'g'ri",
+                detail="Invalid email or password",
             )
 
         if not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Hisob faol emas",
+                detail="Account is inactive",
             )
 
         access_token = create_access_token(data={"sub": str(user.id)})

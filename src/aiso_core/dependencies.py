@@ -18,21 +18,21 @@ async def get_current_user(
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Yaroqsiz token",
+            detail="Invalid token",
         )
 
     user_id = payload.get("sub")
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Yaroqsiz token",
+            detail="Invalid token",
         )
 
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Foydalanuvchi topilmadi",
+            detail="User not found",
         )
 
     return user
@@ -43,7 +43,7 @@ async def require_role(required_role: str):
         if current_user.role != required_role and current_user.role != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"'{required_role}' roli talab qilinadi",
+                detail=f"'{required_role}' role is required",
             )
         return current_user
 
@@ -56,7 +56,7 @@ async def get_developer_user(
     if current_user.role not in ("developer", "admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Developer roli talab qilinadi",
+            detail="Developer role is required",
         )
     return current_user
 
@@ -67,6 +67,6 @@ async def get_admin_user(
     if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin roli talab qilinadi",
+            detail="Admin role is required",
         )
     return current_user

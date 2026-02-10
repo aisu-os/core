@@ -13,7 +13,7 @@ async def get_pending_reviews(
     pagination: PaginationParams = Depends(),
     current_user: User = Depends(get_admin_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.post("/review/{app_id}/approve")
@@ -21,7 +21,7 @@ async def approve_app(
     app_id: str,
     current_user: User = Depends(get_admin_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.post("/review/{app_id}/reject")
@@ -29,7 +29,7 @@ async def reject_app(
     app_id: str,
     current_user: User = Depends(get_admin_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.post("/apps/{app_id}/suspend")
@@ -37,4 +37,4 @@ async def suspend_app(
     app_id: str,
     current_user: User = Depends(get_admin_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")

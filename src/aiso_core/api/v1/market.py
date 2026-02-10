@@ -9,17 +9,17 @@ router = APIRouter()
 
 @router.get("/apps", response_model=AppListResponse)
 async def get_apps(pagination: PaginationParams = Depends()):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.get("/apps/{app_id}", response_model=AppDetailResponse)
 async def get_app(app_id: str):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.get("/apps/{app_id}/reviews", response_model=list[ReviewResponse])
 async def get_app_reviews(app_id: str, pagination: PaginationParams = Depends()):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.get("/categories")
@@ -38,9 +38,9 @@ async def get_categories():
 
 @router.get("/featured", response_model=AppListResponse)
 async def get_featured():
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.get("/search", response_model=AppListResponse)
 async def search_apps(q: str, pagination: PaginationParams = Depends()):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")

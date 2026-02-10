@@ -12,7 +12,7 @@ async def save_avatar(file: UploadFile, user_id: uuid.UUID, upload_dir: str) -> 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Faqat rasm fayllari qabul qilinadi",
+            detail="Only image files are accepted",
         )
 
     ext = ""
@@ -21,14 +21,14 @@ async def save_avatar(file: UploadFile, user_id: uuid.UUID, upload_dir: str) -> 
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Ruxsat berilgan formatlar: {', '.join(ALLOWED_EXTENSIONS)}",
+            detail=f"Allowed formats: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Fayl hajmi 2MB dan oshmasligi kerak",
+            detail="File size must not exceed 2MB",
         )
 
     avatars_dir = Path(upload_dir) / "avatars"

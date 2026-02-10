@@ -14,7 +14,7 @@ async def create_app(
     data: AppCreate,
     current_user: User = Depends(get_developer_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.put("/apps/{app_id}", response_model=AppDetailResponse)
@@ -23,7 +23,7 @@ async def update_app(
     data: AppUpdate,
     current_user: User = Depends(get_developer_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.get("/apps", response_model=AppListResponse)
@@ -31,7 +31,7 @@ async def get_my_apps(
     pagination: PaginationParams = Depends(),
     current_user: User = Depends(get_developer_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.get("/apps/{app_id}/stats")
@@ -39,7 +39,7 @@ async def get_app_stats(
     app_id: str,
     current_user: User = Depends(get_developer_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
 
 
 @router.post("/apps/{app_id}/versions", response_model=AppVersionResponse, status_code=201)
@@ -48,4 +48,4 @@ async def create_version(
     data: AppVersionCreate,
     current_user: User = Depends(get_developer_user),
 ):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Hali implementatsiya qilinmagan")
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
