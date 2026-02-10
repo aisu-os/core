@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_serializer
+
+from aiso_core.utils.helpers import with_full_url
 
 
 class UserCreate(BaseModel):
@@ -27,6 +29,10 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("avatar_url")
+    def _serialize_avatar_url(self, value: str | None) -> str | None:
+        return with_full_url(value)
 
 
 class RegisterResponse(BaseModel):
