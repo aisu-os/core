@@ -207,14 +207,14 @@ async def test_login_success_returns_token(client: AsyncClient, db_session):
 
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": "login@example.com", "password": "secret123"},
+        json={"username": "loginuser", "password": "secret123"},
     )
     assert login.status_code == 200
     data = login.json()
     assert data["token_type"] == "bearer"
     assert data["access_token"]
 
-    result = await db_session.execute(select(User).where(User.email == "login@example.com"))
+    result = await db_session.execute(select(User).where(User.username == "loginuser"))
     user = result.scalar_one()
     payload = decode_token(data["access_token"])
     assert payload is not None
@@ -235,10 +235,10 @@ async def test_login_rejects_invalid_password(client: AsyncClient):
 
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": "wrongpass@example.com", "password": "badpass"},
+        json={"username": "wrongpassuser", "password": "badpass"},
     )
     assert login.status_code == 401
-    assert login.json()["detail"] == "Invalid email or password"
+    assert login.json()["detail"] == "Invalid username or password"
 
 
 async def test_login_rejects_inactive_user(client: AsyncClient, db_session):
@@ -260,7 +260,7 @@ async def test_login_rejects_inactive_user(client: AsyncClient, db_session):
 
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": "inactive@example.com", "password": "secret123"},
+        json={"username": "inactiveuser", "password": "secret123"},
     )
     assert login.status_code == 403
     assert login.json()["detail"] == "Account is inactive"
@@ -280,7 +280,7 @@ async def test_me_success_returns_current_user(client: AsyncClient):
 
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": "me@example.com", "password": "secret123"},
+        json={"username": "meuser", "password": "secret123"},
     )
     token = login.json()["access_token"]
 

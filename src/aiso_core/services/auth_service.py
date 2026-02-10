@@ -38,7 +38,7 @@ class AuthService:
             _email_adapter.validate_python(email)
         except Exception as err:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Invalid email format",
             ) from err
 
@@ -92,14 +92,14 @@ class AuthService:
         )
 
     async def login(self, data: UserLogin) -> TokenResponse:
-        stmt = select(User).where(User.email == data.email)
+        stmt = select(User).where(User.username == data.username)
         result = await self.db.execute(stmt)
         user = result.scalar_one_or_none()
 
         if user is None or not verify_password(data.password, user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",
+                detail="Invalid username or password",
             )
 
         if not user.is_active:
