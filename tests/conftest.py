@@ -68,6 +68,7 @@ async def client(
     monkeypatch.setattr(settings, "upload_dir", str(upload_dir))
     monkeypatch.setattr(settings, "app_url", "http://testserver")
     monkeypatch.setattr(settings, "rate_limit_backend", "memory")
+    monkeypatch.setattr(settings, "container_enabled", False)
     get_rate_limiter.cache_clear()
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:

@@ -40,6 +40,7 @@ class RegisterResponse(BaseModel):
     display_name: str
     avatar_url: str | None = None
     wallpaper: str
+    container_status: str = "disabled"  # creating | running | error | disabled
 
     model_config = {"from_attributes": True}
 

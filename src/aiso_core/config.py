@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     default_user_disk: int = 5120  # MB (5GB)
     default_user_wallpaper: str = "https://images.aisu.run/wallpaper_image.jpg"
 
+    # Container
+    docker_base_url: str = "unix:///var/run/docker.sock"
+    container_image: str = "aisu-user:latest"
+    container_runtime: str = "sysbox-runc"
+    container_network: str = "aisu-net"
+    user_data_base_path: str = "/data/users"
+    container_enabled: bool = True  # macOS dev: False
+    container_cpu_period: int = 100_000  # Docker CPU period (microseconds)
+    container_ram_per_cpu: str = "1g"  # Har bir CPU uchun RAM
+    container_pids_limit: int = 64
+    container_network_rate: str = "5mbit"
+
     # Rate limiting
     rate_limit_backend: str = "memory"  # "memory" or "redis"
     rate_limit_redis_url: str = "redis://localhost:6379/0"

@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import HTTPException, UploadFile, status
@@ -16,6 +17,8 @@ from aiso_core.schemas.user import (
 from aiso_core.utils.file_upload import save_avatar
 from aiso_core.utils.helpers import with_full_url
 from aiso_core.utils.security import create_access_token, hash_password, verify_password
+
+logger = logging.getLogger(__name__)
 
 _email_adapter = TypeAdapter(EmailStr)
 
@@ -88,11 +91,23 @@ class AuthService:
         await self.db.flush()
         await self.db.refresh(user)
 
+        # Container provisioning (sinxron — user kutadi)
+        container_status = "disabled"
+        if settings.container_enabled:
+            from aiso_core.services.container_service import ContainerService
+
+            container_service = ContainerService(self.db)
+            container = await container_service.provision_container(
+                user_id, cpu=user.cpu, disk_mb=user.disk
+            )
+            container_status = container.status
+
         return RegisterResponse(
             username=user.username,
             display_name=user.display_name,
             avatar_url=with_full_url(user.avatar_url),
             wallpaper=self._resolve_wallpaper(user.wallpaper),
+            container_status=container_status,
         )
 
     async def login(self, data: UserLogin) -> TokenResponse:
