@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # User defaults
     default_user_cpu: int = 2
     default_user_disk: int = 5120  # MB (5GB)
-    default_user_wallpaper: str = "https://images.aisu.run/wallpaper_image.jpg"
+    default_user_wallpaper: str = "https://images.aisu.run/aisu_wallpaper_1080p.png"
 
     # Container
     docker_base_url: str = "unix:///var/run/docker.sock"
