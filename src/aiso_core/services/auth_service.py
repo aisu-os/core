@@ -91,6 +91,11 @@ class AuthService:
         await self.db.flush()
         await self.db.refresh(user)
 
+        # Fayl tizimi seeding
+        from aiso_core.services.file_system_service import seed_user_file_system
+
+        await seed_user_file_system(self.db, user.id)
+
         # Container provisioning (sinxron — user kutadi)
         container_status = "disabled"
         if settings.container_enabled:
