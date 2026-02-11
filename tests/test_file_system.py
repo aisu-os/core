@@ -288,3 +288,54 @@ async def test_fs_bulk_move_and_bulk_delete(client: AsyncClient):
         headers=_auth_headers(token),
     )
     assert missing.status_code == 404
+
+
+async def test_fs_update_desktop_positions(client: AsyncClient):
+    token = await _register_and_login(client, "fs7@example.com", "fsuser7")
+
+    created_one = await client.post(
+        "/api/v1/fs/node",
+        json={
+            "parent_path": "/Desktop",
+            "name": "alpha.txt",
+            "node_type": "file",
+        },
+        headers=_auth_headers(token),
+    )
+    assert created_one.status_code == 201
+
+    created_two = await client.post(
+        "/api/v1/fs/node",
+        json={
+            "parent_path": "/Desktop",
+            "name": "beta.txt",
+            "node_type": "file",
+        },
+        headers=_auth_headers(token),
+    )
+    assert created_two.status_code == 201
+
+    updated = await client.patch(
+        "/api/v1/fs/desktop-positions",
+        json={
+            "positions": [
+                {"path": "/Desktop/alpha.txt", "x": 120, "y": 240},
+                {"path": "/Desktop/beta.txt", "x": 12, "y": 34},
+            ]
+        },
+        headers=_auth_headers(token),
+    )
+    assert updated.status_code == 200
+    updated_data = updated.json()
+    assert len(updated_data) == 2
+    positions = {item["path"]: (item["desktop_x"], item["desktop_y"]) for item in updated_data}
+    assert positions["/Desktop/alpha.txt"] == (120, 240)
+    assert positions["/Desktop/beta.txt"] == (12, 34)
+
+    alpha = await client.get(
+        "/api/v1/fs/node",
+        params={"path": "/Desktop/alpha.txt"},
+        headers=_auth_headers(token),
+    )
+    assert alpha.status_code == 200
+    assert (alpha.json()["desktop_x"], alpha.json()["desktop_y"]) == (120, 240)

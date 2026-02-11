@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     UniqueConstraint,
 )
@@ -40,6 +41,8 @@ class FileSystemNode(Base, UUIDMixin, TimestampMixin):
     original_path: Mapped[str | None] = mapped_column(String(4096), nullable=True)
     trashed_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
     content_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    desktop_x: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    desktop_y: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
     # Relationships
     parent: Mapped[FileSystemNode | None] = relationship(

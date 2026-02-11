@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aiso_core.models.file_system_node import FileSystemNode
 from aiso_core.schemas.file_system import (
+    BatchUpdateDesktopPositionsRequest,
     BulkDeleteRequest,
     BulkMoveRequest,
     BulkResultResponse,
@@ -195,6 +196,8 @@ class FileSystemService:
                 mime_type=n.mime_type,
                 size=n.size,
                 is_trashed=n.is_trashed,
+                desktop_x=n.desktop_x,
+                desktop_y=n.desktop_y,
                 created_at=n.created_at,
                 updated_at=n.updated_at,
                 children=[],
@@ -626,6 +629,22 @@ class FileSystemService:
         result = await self.db.execute(stmt)
         await self.db.flush()
         return result.rowcount  # type: ignore[return-value]
+
+    async def update_desktop_positions(
+        self,
+        user_id: uuid.UUID,
+        data: BatchUpdateDesktopPositionsRequest,
+    ) -> list[FileNodeResponse]:
+        results: list[FileSystemNode] = []
+        for pos in data.positions:
+            node = await self._get_node_or_404(user_id, pos.path)
+            node.desktop_x = pos.x
+            node.desktop_y = pos.y
+            results.append(node)
+        await self.db.flush()
+        for node in results:
+            await self.db.refresh(node)
+        return [FileNodeResponse.model_validate(n) for n in results]
 
     async def search(
         self, user_id: uuid.UUID, query: str, scope_path: str | None = None

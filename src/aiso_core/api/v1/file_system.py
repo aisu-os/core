@@ -5,6 +5,7 @@ from aiso_core.database import get_db
 from aiso_core.dependencies import get_current_user
 from aiso_core.models.user import User
 from aiso_core.schemas.file_system import (
+    BatchUpdateDesktopPositionsRequest,
     BulkDeleteRequest,
     BulkMoveRequest,
     BulkResultResponse,
@@ -153,6 +154,16 @@ async def empty_trash(
     service = FileSystemService(db)
     count = await service.empty_trash(current_user.id)
     return {"deleted": count}
+
+
+@router.patch("/desktop-positions", response_model=list[FileNodeResponse])
+async def update_desktop_positions(
+    data: BatchUpdateDesktopPositionsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    service = FileSystemService(db)
+    return await service.update_desktop_positions(current_user.id, data)
 
 
 @router.get("/search", response_model=list[FileNodeResponse])

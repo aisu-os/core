@@ -50,6 +50,16 @@ class BulkMoveRequest(BaseModel):
     dest_parent_path: str
 
 
+class DesktopPositionItem(BaseModel):
+    path: str
+    x: int
+    y: int
+
+
+class BatchUpdateDesktopPositionsRequest(BaseModel):
+    positions: list[DesktopPositionItem]
+
+
 # ── Response schemas ──
 
 
@@ -63,6 +73,8 @@ class FileNodeResponse(BaseModel):
     is_trashed: bool = False
     original_path: str | None = None
     trashed_at: datetime | None = None
+    desktop_x: int | None = None
+    desktop_y: int | None = None
     created_at: datetime
     updated_at: datetime
 
