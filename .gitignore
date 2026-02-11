@@ -36,3 +36,5 @@ Thumbs.db
 
 # Uploads (local dev)
 uploads/
+
+data/

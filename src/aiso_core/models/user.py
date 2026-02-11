@@ -33,3 +33,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     reviews: Mapped[list[AppReview]] = relationship(  # noqa: F821
         back_populates="user",
     )
+    container: Mapped[UserContainer | None] = relationship(  # noqa: F821
+        back_populates="user",
+        uselist=False,
+    )

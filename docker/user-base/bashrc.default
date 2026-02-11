@@ -1,0 +1,47 @@
+# ~/.bashrc — Aisu user default configuration
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# History settings
+HISTCONTROL=ignoreboth
+HISTSIZE=1000
+HISTFILESIZE=2000
+shopt -s histappend
+
+# Check window size after each command
+shopt -s checkwinsize
+
+# Prompt
+PS1='\[\033[01;32m\]\u@aisu\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+
+# Aliases
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias grep='grep --color=auto'
+alias cls='clear'
+
+# PATH
+export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+
+# Node.js
+export NODE_OPTIONS="--max-old-space-size=1024"
+
+# Python
+export PYTHONDONTWRITEBYTECODE=1
+
+# Color support
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+fi
+
+# Welcome message
+echo "Welcome to Aisu OS container!"
+echo "Type 'help' for available commands."

@@ -28,6 +28,10 @@ services:
       CORS_ORIGINS: '["http://localhost:5173","http://localhost:4173"]'
       RATE_LIMIT_BACKEND: redis
       RATE_LIMIT_REDIS_URL: redis://redis:6379/0
+      CONTAINER_ENABLED: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - user_data:/data/users
     depends_on:
       db:
         condition: service_healthy
@@ -50,3 +54,4 @@ services:
 
 volumes:
   postgres_data:
+  user_data:

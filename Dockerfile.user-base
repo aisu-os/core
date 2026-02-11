@@ -1,0 +1,83 @@
+FROM ubuntu:24.04
+
+LABEL maintainer="Aisu Team"
+LABEL description="Aisu user base image with Python, Node.js, Docker CLI, and dev tools"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+
+# System packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sudo \
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    htop \
+    tree \
+    unzip \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    # Build tools
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    cmake \
+    # Network tools
+    iputils-ping \
+    net-tools \
+    dnsutils \
+    # Shell
+    bash \
+    zsh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 3 + pip + venv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 20 LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g yarn pnpm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI (container ichida DinD uchun)
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+       https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+       > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# aisu user yaratish (sudo, docker guruhlari, NOPASSWD)
+RUN groupadd -r aisu \
+    && useradd -r -g aisu -G sudo,docker -m -s /bin/bash aisu \
+    && echo "aisu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/aisu \
+    && chmod 0440 /etc/sudoers.d/aisu
+
+# User data directory
+RUN mkdir -p /home/aisu/data && chown -R aisu:aisu /home/aisu
+
+# Default bashrc
+COPY docker/user-base/bashrc.default /home/aisu/.bashrc
+RUN chown aisu:aisu /home/aisu/.bashrc
+
+# Entrypoint
+COPY docker/user-base/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER aisu
+WORKDIR /home/aisu
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["bash"]
