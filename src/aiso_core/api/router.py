@@ -1,6 +1,15 @@
 from fastapi import APIRouter
 
-from aiso_core.api.v1 import admin, auth, container, developer, file_system, health, market, user_apps
+from aiso_core.api.v1 import (
+    admin,
+    auth,
+    container,
+    developer,
+    file_system,
+    health,
+    market,
+    user_apps,
+)
 
 api_router = APIRouter()
 

@@ -38,9 +38,7 @@ class FileSystemNode(Base, UUIDMixin, TimestampMixin):
     size: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     is_trashed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     original_path: Mapped[str | None] = mapped_column(String(4096), nullable=True)
-    trashed_at: Mapped[str | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    trashed_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
     content_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships

@@ -86,9 +86,7 @@ class FileSystemService:
 
     # ── Internal helpers ──
 
-    async def _get_node_or_404(
-        self, user_id: uuid.UUID, path: str
-    ) -> FileSystemNode:
+    async def _get_node_or_404(self, user_id: uuid.UUID, path: str) -> FileSystemNode:
         stmt = select(FileSystemNode).where(
             and_(
                 FileSystemNode.user_id == user_id,
@@ -113,12 +111,10 @@ class FileSystemService:
     async def _generate_unique_name(
         self, user_id: uuid.UUID, parent_path: str, base_name: str
     ) -> str:
-        stmt = select(FileSystemNode.name).where(
+        select(FileSystemNode.name).where(
             and_(
                 FileSystemNode.user_id == user_id,
-                FileSystemNode.path.like(
-                    f"{parent_path}/%" if parent_path != "/" else "/%"
-                ),
+                FileSystemNode.path.like(f"{parent_path}/%" if parent_path != "/" else "/%"),
             )
         )
         # Get direct children names only
@@ -267,9 +263,7 @@ class FileSystemService:
             total=len(children),
         )
 
-    async def create_node(
-        self, user_id: uuid.UUID, data: CreateNodeRequest
-    ) -> FileNodeResponse:
+    async def create_node(self, user_id: uuid.UUID, data: CreateNodeRequest) -> FileNodeResponse:
         parent = await self._get_node_or_404(user_id, data.parent_path)
         if parent.node_type != "directory":
             raise HTTPException(
@@ -277,9 +271,7 @@ class FileSystemService:
                 detail="Parent is not a directory",
             )
 
-        unique_name = await self._generate_unique_name(
-            user_id, data.parent_path, data.name
-        )
+        unique_name = await self._generate_unique_name(user_id, data.parent_path, data.name)
         new_path = self._build_path(data.parent_path, unique_name)
 
         node = FileSystemNode(
@@ -297,9 +289,7 @@ class FileSystemService:
 
         return FileNodeResponse.model_validate(node)
 
-    async def rename_node(
-        self, user_id: uuid.UUID, data: RenameNodeRequest
-    ) -> MoveResultResponse:
+    async def rename_node(self, user_id: uuid.UUID, data: RenameNodeRequest) -> MoveResultResponse:
         node = await self._get_node_or_404(user_id, data.path)
         if data.path == "/":
             raise HTTPException(
@@ -341,9 +331,7 @@ class FileSystemService:
             node=FileNodeResponse.model_validate(node),
         )
 
-    async def move_node(
-        self, user_id: uuid.UUID, data: MoveNodeRequest
-    ) -> MoveResultResponse:
+    async def move_node(self, user_id: uuid.UUID, data: MoveNodeRequest) -> MoveResultResponse:
         node = await self._get_node_or_404(user_id, data.source_path)
         if data.source_path == "/":
             raise HTTPException(
@@ -368,9 +356,7 @@ class FileSystemService:
             )
 
         old_path = node.path
-        unique_name = await self._generate_unique_name(
-            user_id, data.dest_parent_path, node.name
-        )
+        unique_name = await self._generate_unique_name(user_id, data.dest_parent_path, node.name)
         new_path = self._build_path(data.dest_parent_path, unique_name)
 
         # Rewrite descendants
@@ -389,9 +375,7 @@ class FileSystemService:
             node=FileNodeResponse.model_validate(node),
         )
 
-    async def copy_node(
-        self, user_id: uuid.UUID, data: CopyNodeRequest
-    ) -> CopyResultResponse:
+    async def copy_node(self, user_id: uuid.UUID, data: CopyNodeRequest) -> CopyResultResponse:
         source = await self._get_node_or_404(user_id, data.source_path)
         dest_parent = await self._get_node_or_404(user_id, data.dest_parent_path)
         if dest_parent.node_type != "directory":
@@ -400,9 +384,7 @@ class FileSystemService:
                 detail="Destination is not a directory",
             )
 
-        unique_name = await self._generate_unique_name(
-            user_id, data.dest_parent_path, source.name
-        )
+        unique_name = await self._generate_unique_name(user_id, data.dest_parent_path, source.name)
         new_root_path = self._build_path(data.dest_parent_path, unique_name)
 
         # Deep copy: get source + all descendants
@@ -434,7 +416,7 @@ class FileSystemService:
         id_map: dict[uuid.UUID, uuid.UUID] = {source.id: root_copy.id}
 
         for desc in descendants:
-            new_desc_path = new_root_path + desc.path[len(data.source_path):]
+            new_desc_path = new_root_path + desc.path[len(data.source_path) :]
             new_parent_id = id_map.get(desc.parent_id) if desc.parent_id else None
 
             copy = FileSystemNode(
@@ -459,9 +441,7 @@ class FileSystemService:
             node=FileNodeResponse.model_validate(root_copy),
         )
 
-    async def delete_node(
-        self, user_id: uuid.UUID, data: DeleteNodeRequest
-    ) -> FileNodeResponse:
+    async def delete_node(self, user_id: uuid.UUID, data: DeleteNodeRequest) -> FileNodeResponse:
         node = await self._get_node_or_404(user_id, data.path)
         if data.path == "/":
             raise HTTPException(
@@ -520,9 +500,7 @@ class FileSystemService:
 
         return FileNodeResponse.model_validate(node)
 
-    async def bulk_delete(
-        self, user_id: uuid.UUID, data: BulkDeleteRequest
-    ) -> BulkResultResponse:
+    async def bulk_delete(self, user_id: uuid.UUID, data: BulkDeleteRequest) -> BulkResultResponse:
         succeeded: list[str] = []
         failed: list[dict[str, str | None]] = []
 
@@ -540,9 +518,7 @@ class FileSystemService:
             failed=[{"path": f["path"], "error": f["error"]} for f in failed],  # type: ignore[misc]
         )
 
-    async def bulk_move(
-        self, user_id: uuid.UUID, data: BulkMoveRequest
-    ) -> BulkResultResponse:
+    async def bulk_move(self, user_id: uuid.UUID, data: BulkMoveRequest) -> BulkResultResponse:
         succeeded: list[str] = []
         failed: list[dict[str, str | None]] = []
 
@@ -550,9 +526,7 @@ class FileSystemService:
             try:
                 await self.move_node(
                     user_id,
-                    MoveNodeRequest(
-                        source_path=path, dest_parent_path=data.dest_parent_path
-                    ),
+                    MoveNodeRequest(source_path=path, dest_parent_path=data.dest_parent_path),
                 )
                 succeeded.append(path)
             except HTTPException as e:
@@ -606,9 +580,7 @@ class FileSystemService:
         parent_path = original_path.rsplit("/", 1)[0] or "/"
         parent = await self._get_node_or_404(user_id, parent_path)
 
-        unique_name = await self._generate_unique_name(
-            user_id, parent_path, node.name
-        )
+        unique_name = await self._generate_unique_name(user_id, parent_path, node.name)
         new_path = self._build_path(parent_path, unique_name)
 
         old_path = node.path
