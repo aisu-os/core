@@ -28,9 +28,7 @@ class UserContainer(Base, UUIDMixin, TimestampMixin):
     ram_limit: Mapped[int] = mapped_column(BigInteger, default=2_147_483_648)  # 2GB in bytes
     disk_limit: Mapped[int] = mapped_column(BigInteger, default=5_368_709_120)  # 5GB in bytes
     network_rate: Mapped[str] = mapped_column(String(20), default="5mbit")
-    last_activity: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_activity: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships

@@ -18,9 +18,7 @@ class ContainerEvent(Base, UUIDMixin):
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )
-    event_type: Mapped[str] = mapped_column(
-        String(50)
-    )  # created | started | stopped | error | ...
+    event_type: Mapped[str] = mapped_column(String(50))  # created | started | stopped | error | ...
     details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
