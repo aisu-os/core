@@ -147,7 +147,7 @@ class AuthService:
             )
 
         return UsernameInfoResponse(
-            avatar_url=user.avatar_url,
+            avatar_url=with_full_url(user.avatar_url),
             display_name=user.display_name,
             wallpaper=self._resolve_wallpaper(user.wallpaper),
         )
