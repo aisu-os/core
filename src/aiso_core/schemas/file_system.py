@@ -61,6 +61,8 @@ class FileNodeResponse(BaseModel):
     mime_type: str | None = None
     size: int = 0
     is_trashed: bool = False
+    original_path: str | None = None
+    trashed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
