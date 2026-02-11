@@ -142,7 +142,8 @@ class ContainerService:
         cpu: int,
         disk_mb: int,
     ) -> UserContainer:
-        """To'liq provisioning: dirlar yaratish -> DB ga 'creating' yozish -> Docker -> DB yangilash.
+        """To'liq provisioning: dirlar yaratish -> DB ga 'creating' yozish -> Docker ->
+        DB yangilash.
 
         Args:
             user_id: Foydalanuvchi ID
@@ -174,9 +175,7 @@ class ContainerService:
         await self._log_event(user_id, "creating", {"cpu": cpu, "disk_mb": disk_mb})
 
         # Docker container yaratish (background thread)
-        result = await asyncio.to_thread(
-            _create_container_sync, user_id, cpu, disk_mb, ram_bytes
-        )
+        result = await asyncio.to_thread(_create_container_sync, user_id, cpu, disk_mb, ram_bytes)
 
         # DB yangilash
         container_record.container_id = result["container_id"]
@@ -200,9 +199,7 @@ class ContainerService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def start_container(
-        self, user_id: uuid.UUID, cpu: int, disk_mb: int
-    ) -> dict[str, str]:
+    async def start_container(self, user_id: uuid.UUID, cpu: int, disk_mb: int) -> dict[str, str]:
         """To'xtatilgan containerni ishga tushirish."""
         container_record = await self.get_container(user_id)
         if container_record is None:
