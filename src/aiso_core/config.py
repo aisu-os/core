@@ -1,9 +1,14 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# aiso-core/ papkasining yo'li (src/aiso_core/config.py -> 2 daraja yuqori -> aiso-core/)
+_env_file = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_env_file),
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
