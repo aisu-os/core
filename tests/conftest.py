@@ -12,8 +12,10 @@ from aiso_core.config import settings
 from aiso_core.database import get_db
 from aiso_core.main import app
 from aiso_core.models.beta_access_request import BetaAccessRequest
+from aiso_core.models.container_event import ContainerEvent
 from aiso_core.models.file_system_node import FileSystemNode
 from aiso_core.models.user import User
+from aiso_core.models.user_container import UserContainer
 from aiso_core.services.beta_access_service import BetaAccessService
 from aiso_core.utils.rate_limiter import get_rate_limiter
 
@@ -43,6 +45,12 @@ async def db_engine(tmp_path_factory) -> AsyncGenerator:
         )
         await conn.run_sync(
             lambda sync_conn: FileSystemNode.__table__.create(sync_conn, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda sync_conn: UserContainer.__table__.create(sync_conn, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda sync_conn: ContainerEvent.__table__.create(sync_conn, checkfirst=True)
         )
     try:
         yield engine

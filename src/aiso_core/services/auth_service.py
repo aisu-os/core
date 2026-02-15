@@ -93,35 +93,42 @@ class AuthService:
         elif avatar_emoji:
             avatar_url = avatar_emoji
 
-        user = User(
-            id=user_id,
-            email=normalized_email,
-            username=username,
-            display_name=display_name,
-            hashed_password=hash_password(password),
-            avatar_url=avatar_url,
-            cpu=settings.default_user_cpu,
-            disk=settings.default_user_disk,
-            wallpaper=None,
-        )
-        self.db.add(user)
-        await self.db.flush()
-        await self.db.refresh(user)
-
-        # Container provisioning (sinxron — user kutadi)
-        # Container yaratilganda _create_user_dirs() papkalarni yaratadi
-        container_status = "disabled"
-        if settings.container_enabled:
-            from aiso_core.services.container_service import ContainerService
-
-            container_service = ContainerService(self.db)
-            container = await container_service.provision_container(
-                user_id, cpu=user.cpu, disk_mb=user.disk
+        # Savepoint orqali atomik tranzaksiya: user yaratish, container
+        # provisioning va beta token belgilash birgalikda commit/rollback bo'ladi.
+        async with self.db.begin_nested():
+            user = User(
+                id=user_id,
+                email=normalized_email,
+                username=username,
+                display_name=display_name,
+                hashed_password=hash_password(password),
+                avatar_url=avatar_url,
+                cpu=settings.default_user_cpu,
+                disk=settings.default_user_disk,
+                wallpaper=None,
             )
-            container_status = container.status
+            self.db.add(user)
+            await self.db.flush()
+            await self.db.refresh(user)
 
-        if settings.beta_access_enabled and beta_request is not None and beta_service is not None:
-            await beta_service.mark_token_used(beta_request)
+            # Container provisioning (sinxron — user kutadi)
+            # Container yaratilganda _create_user_dirs() papkalarni yaratadi
+            container_status = "disabled"
+            if settings.container_enabled:
+                from aiso_core.services.container_service import ContainerService
+
+                container_service = ContainerService(self.db)
+                container = await container_service.provision_container(
+                    user_id, cpu=user.cpu, disk_mb=user.disk
+                )
+                container_status = container.status
+
+            if (
+                settings.beta_access_enabled
+                and beta_request is not None
+                and beta_service is not None
+            ):
+                await beta_service.mark_token_used(beta_request)
 
         return RegisterResponse(
             username=user.username,
@@ -154,7 +161,9 @@ class AuthService:
 
             container_service = ContainerService(self.db)
             await container_service.start_container(
-                user_id=user.id, cpu=user.cpu, disk_mb=user.disk,
+                user_id=user.id,
+                cpu=user.cpu,
+                disk_mb=user.disk,
             )
 
         access_token = create_access_token(data={"sub": str(user.id)})
