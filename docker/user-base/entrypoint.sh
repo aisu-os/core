@@ -1,15 +1,14 @@
 #!/bin/bash
-set -e
 
-# Docker daemon boshlash (Sysbox ichida ishlaydi)
-if [ -e /var/run/docker.sock ] || command -v dockerd &> /dev/null; then
-    # Sysbox runtimeda dockerd to'g'ridan-to'g'ri ishga tushishi mumkin
+# Docker daemon boshlash (faqat Sysbox runtime ichida ishlaydi)
+# Sysbox bo'lmasa dockerd ishlamaydi — o'tkazib yuboramiz
+if [ -e /run/sysbox/sysfs ] && command -v dockerd &> /dev/null; then
     if ! pgrep -x dockerd > /dev/null 2>&1; then
         sudo dockerd --storage-driver=overlay2 > /var/log/dockerd.log 2>&1 &
 
         # Docker daemon tayyor bo'lishini kutish
         retries=0
-        max_retries=30
+        max_retries=15
         while ! docker info > /dev/null 2>&1; do
             retries=$((retries + 1))
             if [ "$retries" -ge "$max_retries" ]; then

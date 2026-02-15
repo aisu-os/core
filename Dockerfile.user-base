@@ -33,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Shell
     bash \
     zsh \
+    tmux \
+    screen \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 3 + pip + venv
@@ -65,8 +67,8 @@ RUN groupadd -r aisu \
     && echo "aisu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/aisu \
     && chmod 0440 /etc/sudoers.d/aisu
 
-# User data directory
-RUN mkdir -p /home/aisu/data && chown -R aisu:aisu /home/aisu
+# Ensure home ownership
+RUN chown -R aisu:aisu /home/aisu
 
 # Default bashrc
 COPY docker/user-base/bashrc.default /home/aisu/.bashrc

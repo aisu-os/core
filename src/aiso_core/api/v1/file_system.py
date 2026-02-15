@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, Query
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aiso_core.config import settings
 from aiso_core.database import get_db
 from aiso_core.dependencies import get_current_user
 from aiso_core.models.user import User
@@ -26,12 +29,45 @@ from aiso_core.services.file_system_service import FileSystemService
 router = APIRouter()
 
 
+async def _ensure_container_running(user: User) -> str:
+    """Container ishayotganini tekshirish. container_name qaytaradi."""
+    container_name = f"aisu_{user.id}"
+
+    if not settings.container_enabled:
+        return container_name
+
+    try:
+        from aiso_core.services.container_service import _get_docker_client
+
+        client = _get_docker_client()
+        container = await asyncio.to_thread(client.containers.get, container_name)
+        if container.status != "running":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Container ishlamayapti. Avval terminal orqali tizimni ishga tushiring.",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Container topilmadi. Avval terminal orqali tizimni ishga tushiring.",
+        ) from exc
+
+    return container_name
+
+
+def _get_service(db: AsyncSession, container_name: str) -> FileSystemService:
+    return FileSystemService(db, container_name)
+
+
 @router.get("/tree", response_model=FileNodeTreeResponse)
 async def get_tree(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.get_tree(current_user.id)
 
 
@@ -41,7 +77,8 @@ async def get_node(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.get_node(current_user.id, path)
 
 
@@ -53,7 +90,8 @@ async def list_directory(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.list_directory(current_user.id, path, sort_by, sort_dir)
 
 
@@ -63,7 +101,8 @@ async def create_node(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.create_node(current_user.id, data)
 
 
@@ -73,7 +112,8 @@ async def rename_node(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.rename_node(current_user.id, data)
 
 
@@ -83,7 +123,8 @@ async def move_node(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.move_node(current_user.id, data)
 
 
@@ -93,7 +134,8 @@ async def copy_node(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.copy_node(current_user.id, data)
 
 
@@ -103,7 +145,8 @@ async def delete_node(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.delete_node(current_user.id, data)
 
 
@@ -113,7 +156,8 @@ async def bulk_delete(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.bulk_delete(current_user.id, data)
 
 
@@ -123,7 +167,8 @@ async def bulk_move(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.bulk_move(current_user.id, data)
 
 
@@ -132,7 +177,8 @@ async def list_trash(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.list_trash(current_user.id)
 
 
@@ -142,7 +188,8 @@ async def restore_node(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.restore_node(current_user.id, data)
 
 
@@ -151,7 +198,8 @@ async def empty_trash(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     count = await service.empty_trash(current_user.id)
     return {"deleted": count}
 
@@ -162,7 +210,8 @@ async def update_desktop_positions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.update_desktop_positions(current_user.id, data)
 
 
@@ -173,5 +222,6 @@ async def search_files(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    service = FileSystemService(db)
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
     return await service.search(current_user.id, q, path)

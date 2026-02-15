@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
+
+# ── Deterministic UUID generator ──
+
+_FS_NAMESPACE = uuid.UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
+
+
+def path_to_uuid(user_id: uuid.UUID, path: str) -> uuid.UUID:
+    """user_id va path asosida barqaror UUID yaratadi."""
+    return uuid.uuid5(_FS_NAMESPACE, f"{user_id}:{path}")
+
 
 # ── Request schemas ──
 
@@ -75,10 +85,8 @@ class FileNodeResponse(BaseModel):
     trashed_at: datetime | None = None
     desktop_x: int | None = None
     desktop_y: int | None = None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class FileNodeWithChildrenResponse(FileNodeResponse):

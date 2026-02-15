@@ -51,40 +51,6 @@ async def get_current_user(
     return user
 
 
-async def require_role(required_role: str):
-    async def _check(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role != required_role and current_user.role != "admin":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"'{required_role}' role is required",
-            )
-        return current_user
-
-    return _check
-
-
-async def get_developer_user(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    if current_user.role not in ("developer", "admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Developer role is required",
-        )
-    return current_user
-
-
-async def get_admin_user(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role is required",
-        )
-    return current_user
-
-
 def _get_client_ip(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
@@ -107,5 +73,12 @@ def rate_limit(limit: int, window_seconds: int) -> Callable[[Request], Awaitable
 def rate_limit_username_info() -> Callable[[Request], Awaitable[None]]:
     return rate_limit(
         limit=settings.rate_limit_username_info_per_minute,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
+
+
+def rate_limit_auth() -> Callable[[Request], Awaitable[None]]:
+    return rate_limit(
+        limit=settings.rate_limit_auth_per_minute,
         window_seconds=settings.rate_limit_window_seconds,
     )

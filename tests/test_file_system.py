@@ -1,7 +1,19 @@
 from httpx import AsyncClient
 
 
-async def _register_and_login(client: AsyncClient, email: str, username: str) -> str:
+async def _register_and_login(
+    client: AsyncClient,
+    email: str,
+    username: str,
+    beta_token_store: dict[str, str],
+) -> str:
+    beta_request = await client.post(
+        "/api/v1/beta/access-request",
+        data={"email": email, "extra_text": "fs test invite"},
+    )
+    assert beta_request.status_code == 201
+    beta_token = beta_token_store[email]
+
     register = await client.post(
         "/api/v1/auth/register",
         data={
@@ -9,6 +21,7 @@ async def _register_and_login(client: AsyncClient, email: str, username: str) ->
             "username": username,
             "display_name": username,
             "password": "secret123",
+            "beta_token": beta_token,
         },
     )
     assert register.status_code == 201
@@ -25,8 +38,8 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def test_fs_tree_seeds_default_dirs(client: AsyncClient):
-    token = await _register_and_login(client, "fs1@example.com", "fsuser1")
+async def test_fs_tree_seeds_default_dirs(client: AsyncClient, beta_token_store: dict[str, str]):
+    token = await _register_and_login(client, "fs1@example.com", "fsuser1", beta_token_store)
 
     tree = await client.get("/api/v1/fs/tree", headers=_auth_headers(token))
     assert tree.status_code == 200
@@ -46,8 +59,10 @@ async def test_fs_tree_seeds_default_dirs(client: AsyncClient):
     assert child_names == expected
 
 
-async def test_fs_list_directory_and_get_node(client: AsyncClient):
-    token = await _register_and_login(client, "fs2@example.com", "fsuser2")
+async def test_fs_list_directory_and_get_node(
+    client: AsyncClient, beta_token_store: dict[str, str]
+):
+    token = await _register_and_login(client, "fs2@example.com", "fsuser2", beta_token_store)
 
     root = await client.get(
         "/api/v1/fs/ls",
@@ -83,8 +98,8 @@ async def test_fs_list_directory_and_get_node(client: AsyncClient):
     assert fetched.json()["path"] == "/Documents/note.txt"
 
 
-async def test_fs_rename_and_move(client: AsyncClient):
-    token = await _register_and_login(client, "fs3@example.com", "fsuser3")
+async def test_fs_rename_and_move(client: AsyncClient, beta_token_store: dict[str, str]):
+    token = await _register_and_login(client, "fs3@example.com", "fsuser3", beta_token_store)
 
     await client.post(
         "/api/v1/fs/node",
@@ -117,8 +132,8 @@ async def test_fs_rename_and_move(client: AsyncClient):
     assert moved_data["new_path"] == "/Downloads/note2.txt"
 
 
-async def test_fs_copy_and_search(client: AsyncClient):
-    token = await _register_and_login(client, "fs4@example.com", "fsuser4")
+async def test_fs_copy_and_search(client: AsyncClient, beta_token_store: dict[str, str]):
+    token = await _register_and_login(client, "fs4@example.com", "fsuser4", beta_token_store)
 
     await client.post(
         "/api/v1/fs/node",
@@ -167,8 +182,10 @@ async def test_fs_copy_and_search(client: AsyncClient):
     assert new_root in paths
 
 
-async def test_fs_delete_restore_and_empty_trash(client: AsyncClient):
-    token = await _register_and_login(client, "fs5@example.com", "fsuser5")
+async def test_fs_delete_restore_and_empty_trash(
+    client: AsyncClient, beta_token_store: dict[str, str]
+):
+    token = await _register_and_login(client, "fs5@example.com", "fsuser5", beta_token_store)
 
     await client.post(
         "/api/v1/fs/node",
@@ -230,8 +247,8 @@ async def test_fs_delete_restore_and_empty_trash(client: AsyncClient):
     assert trash_after_empty.json() == []
 
 
-async def test_fs_bulk_move_and_bulk_delete(client: AsyncClient):
-    token = await _register_and_login(client, "fs6@example.com", "fsuser6")
+async def test_fs_bulk_move_and_bulk_delete(client: AsyncClient, beta_token_store: dict[str, str]):
+    token = await _register_and_login(client, "fs6@example.com", "fsuser6", beta_token_store)
 
     for name in ["a.txt", "b.txt"]:
         created = await client.post(
@@ -290,8 +307,8 @@ async def test_fs_bulk_move_and_bulk_delete(client: AsyncClient):
     assert missing.status_code == 404
 
 
-async def test_fs_update_desktop_positions(client: AsyncClient):
-    token = await _register_and_login(client, "fs7@example.com", "fsuser7")
+async def test_fs_update_desktop_positions(client: AsyncClient, beta_token_store: dict[str, str]):
+    token = await _register_and_login(client, "fs7@example.com", "fsuser7", beta_token_store)
 
     created_one = await client.post(
         "/api/v1/fs/node",

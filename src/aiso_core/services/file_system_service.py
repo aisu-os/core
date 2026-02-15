@@ -1,10 +1,17 @@
+"""Fayl tizimi servisi — Docker container file system bilan ishlaydi.
+
+Barcha fayl operatsiyalari ContainerFsService orqali haqiqiy
+Docker container ichidagi fayl tizimida bajariladi. Database faqat
+desktop pozitsiyalar va trash metadata uchun ishlatiladi.
+"""
+
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aiso_core.models.file_system_node import FileSystemNode
@@ -24,203 +31,222 @@ from aiso_core.schemas.file_system import (
     MoveResultResponse,
     RenameNodeRequest,
     RestoreNodeRequest,
+    path_to_uuid,
 )
-
-DEFAULT_DIRS = [
-    "/",
-    "/Desktop",
-    "/Documents",
-    "/Downloads",
-    "/Pictures",
-    "/Music",
-    "/Videos",
-    "/.Trash",
-]
+from aiso_core.services.container_fs_service import ContainerFsService
 
 
-async def seed_user_file_system(db: AsyncSession, user_id: uuid.UUID) -> None:
-    root_node: FileSystemNode | None = None
+def _ts_from_epoch(epoch: float) -> datetime:
+    """Unix epoch (float) ni datetime ga o'giradi."""
+    return datetime.fromtimestamp(epoch, tz=UTC)
 
-    for dir_path in DEFAULT_DIRS:
-        name = "/" if dir_path == "/" else dir_path.rsplit("/", 1)[-1]
-        parent_id: uuid.UUID | None = None
 
-        if dir_path != "/":
-            parent_path = dir_path.rsplit("/", 1)[0] or "/"
-            parent_stmt = select(FileSystemNode).where(
-                and_(
-                    FileSystemNode.user_id == user_id,
-                    FileSystemNode.path == parent_path,
-                )
-            )
-            parent_result = await db.execute(parent_stmt)
-            parent = parent_result.scalar_one_or_none()
-            if parent:
-                parent_id = parent.id
+def _build_node_response(
+    raw: dict,
+    user_id: uuid.UUID,
+    vfs_path: str,
+    base_path: str,
+    *,
+    is_trashed: bool = False,
+    original_path: str | None = None,
+    trashed_at: datetime | None = None,
+    desktop_x: int | None = None,
+    desktop_y: int | None = None,
+) -> FileNodeResponse:
+    """Container stat dict'dan FileNodeResponse yaratish."""
+    return FileNodeResponse(
+        id=path_to_uuid(user_id, vfs_path),
+        name=raw.get("name", vfs_path.rsplit("/", 1)[-1] or "/"),
+        path=vfs_path,
+        node_type=raw.get("type", "file"),
+        mime_type=raw.get("mime_type"),
+        size=raw.get("size", 0),
+        is_trashed=is_trashed,
+        original_path=original_path,
+        trashed_at=trashed_at,
+        desktop_x=desktop_x,
+        desktop_y=desktop_y,
+        created_at=_ts_from_epoch(raw.get("ctime", 0)),
+        updated_at=_ts_from_epoch(raw.get("mtime", 0)),
+    )
 
-        if root_node is None and dir_path == "/":
-            node = FileSystemNode(
-                user_id=user_id,
-                parent_id=None,
-                name=name,
-                path=dir_path,
-                node_type="directory",
-            )
-            db.add(node)
-            await db.flush()
-            root_node = node
-        else:
-            node = FileSystemNode(
-                user_id=user_id,
-                parent_id=parent_id,
-                name=name,
-                path=dir_path,
-                node_type="directory",
-            )
-            db.add(node)
-            await db.flush()
+
+def _build_tree_response(
+    raw: dict,
+    user_id: uuid.UUID,
+    base_path: str,
+    metadata_map: dict[str, FileSystemNode],
+) -> FileNodeTreeResponse:
+    """Container tree dict'dan rekursiv FileNodeTreeResponse yaratish."""
+    # Container path → VFS path
+    container_path = raw.get("path", base_path)
+    if container_path == base_path or container_path == base_path + "/":
+        vfs_path = "/"
+    elif container_path.startswith(base_path + "/"):
+        vfs_path = container_path[len(base_path) :]
+    else:
+        vfs_path = container_path
+
+    meta = metadata_map.get(vfs_path)
+
+    children: list[FileNodeTreeResponse] = []
+    for child_raw in raw.get("children", []):
+        children.append(_build_tree_response(child_raw, user_id, base_path, metadata_map))
+
+    return FileNodeTreeResponse(
+        id=path_to_uuid(user_id, vfs_path),
+        name=raw.get("name", vfs_path.rsplit("/", 1)[-1] or "/"),
+        path=vfs_path,
+        node_type=raw.get("type", "file"),
+        mime_type=raw.get("mime_type"),
+        size=raw.get("size", 0),
+        is_trashed=False,
+        desktop_x=meta.desktop_x if meta else None,
+        desktop_y=meta.desktop_y if meta else None,
+        created_at=_ts_from_epoch(raw.get("ctime", 0)),
+        updated_at=_ts_from_epoch(raw.get("mtime", 0)),
+        children=children,
+    )
 
 
 class FileSystemService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, container_name: str):
         self.db = db
+        self.cfs = ContainerFsService(container_name)
 
-    # ── Internal helpers ──
+    # ── Yordamchi: metadata olish ──
 
-    async def _get_node_or_404(self, user_id: uuid.UUID, path: str) -> FileSystemNode:
+    async def _get_metadata_map(self, user_id: uuid.UUID) -> dict[str, FileSystemNode]:
+        """DB'dan barcha metadata (desktop pozitsiyalar) ni olish."""
         stmt = select(FileSystemNode).where(
             and_(
                 FileSystemNode.user_id == user_id,
-                FileSystemNode.path == path,
-                FileSystemNode.is_trashed == False,  # noqa: E712
-            )
-        )
-        result = await self.db.execute(stmt)
-        node = result.scalar_one_or_none()
-        if node is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Node not found: {path}",
-            )
-        return node
-
-    def _build_path(self, parent_path: str, name: str) -> str:
-        if parent_path == "/":
-            return f"/{name}"
-        return f"{parent_path}/{name}"
-
-    async def _generate_unique_name(
-        self, user_id: uuid.UUID, parent_path: str, base_name: str
-    ) -> str:
-        select(FileSystemNode.name).where(
-            and_(
-                FileSystemNode.user_id == user_id,
-                FileSystemNode.path.like(f"{parent_path}/%" if parent_path != "/" else "/%"),
-            )
-        )
-        # Get direct children names only
-        parent = await self._get_node_or_404(user_id, parent_path)
-        children_stmt = select(FileSystemNode.name).where(
-            and_(
-                FileSystemNode.user_id == user_id,
-                FileSystemNode.parent_id == parent.id,
-                FileSystemNode.is_trashed == False,  # noqa: E712
-            )
-        )
-        result = await self.db.execute(children_stmt)
-        existing = {row[0].lower() for row in result.all()}
-
-        if base_name.lower() not in existing:
-            return base_name
-
-        counter = 2
-        while f"{base_name} {counter}".lower() in existing:
-            counter += 1
-        return f"{base_name} {counter}"
-
-    async def _rewrite_descendant_paths(
-        self, user_id: uuid.UUID, old_prefix: str, new_prefix: str
-    ) -> None:
-        if old_prefix == new_prefix:
-            return
-        stmt = (
-            update(FileSystemNode)
-            .where(
-                and_(
-                    FileSystemNode.user_id == user_id,
-                    FileSystemNode.path.like(f"{old_prefix}/%"),
-                )
-            )
-            .values(
-                path=func.concat(new_prefix, func.substr(FileSystemNode.path, len(old_prefix) + 1))
-            )
-        )
-        await self.db.execute(stmt)
-
-    # ── Public API ──
-
-    async def get_tree(self, user_id: uuid.UUID) -> FileNodeTreeResponse:
-        # Check root exists, lazy seed if not
-        root_stmt = select(FileSystemNode).where(
-            and_(
-                FileSystemNode.user_id == user_id,
-                FileSystemNode.path == "/",
-            )
-        )
-        result = await self.db.execute(root_stmt)
-        root = result.scalar_one_or_none()
-
-        if root is None:
-            await seed_user_file_system(self.db, user_id)
-            result = await self.db.execute(root_stmt)
-            root = result.scalar_one_or_none()
-
-        # Fetch all non-trashed nodes
-        stmt = select(FileSystemNode).where(
-            and_(
-                FileSystemNode.user_id == user_id,
-                FileSystemNode.is_trashed == False,  # noqa: E712
+                FileSystemNode.desktop_x.is_not(None),
             )
         )
         result = await self.db.execute(stmt)
         nodes = result.scalars().all()
+        return {n.path: n for n in nodes}
 
-        # Build tree in Python
-        node_map: dict[uuid.UUID, FileNodeTreeResponse] = {}
-        for n in nodes:
-            node_map[n.id] = FileNodeTreeResponse(
-                id=n.id,
-                name=n.name,
-                path=n.path,
-                node_type=n.node_type,
-                mime_type=n.mime_type,
-                size=n.size,
-                is_trashed=n.is_trashed,
-                desktop_x=n.desktop_x,
-                desktop_y=n.desktop_y,
-                created_at=n.created_at,
-                updated_at=n.updated_at,
-                children=[],
+    async def _get_trash_metadata(self, user_id: uuid.UUID) -> dict[str, FileSystemNode]:
+        """Trash metadata (original_path) ni olish."""
+        stmt = select(FileSystemNode).where(
+            and_(
+                FileSystemNode.user_id == user_id,
+                FileSystemNode.is_trashed == True,  # noqa: E712
             )
+        )
+        result = await self.db.execute(stmt)
+        nodes = result.scalars().all()
+        return {n.path: n for n in nodes}
 
-        root_response: FileNodeTreeResponse | None = None
-        for n in nodes:
-            resp = node_map[n.id]
-            if n.parent_id and n.parent_id in node_map:
-                node_map[n.parent_id].children.append(resp)
-            elif n.path == "/":
-                root_response = resp
-
-        if root_response is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Root node not found after seeding",
+    async def _upsert_metadata(
+        self,
+        user_id: uuid.UUID,
+        path: str,
+        *,
+        desktop_x: int | None = None,
+        desktop_y: int | None = None,
+        is_trashed: bool = False,
+        original_path: str | None = None,
+    ) -> None:
+        """DB'da metadata yaratish yoki yangilash."""
+        stmt = select(FileSystemNode).where(
+            and_(
+                FileSystemNode.user_id == user_id,
+                FileSystemNode.path == path,
             )
-        return root_response
+        )
+        result = await self.db.execute(stmt)
+        node = result.scalar_one_or_none()
+
+        if node:
+            if desktop_x is not None:
+                node.desktop_x = desktop_x
+            if desktop_y is not None:
+                node.desktop_y = desktop_y
+            node.is_trashed = is_trashed
+            node.original_path = original_path
+        else:
+            node = FileSystemNode(
+                user_id=user_id,
+                parent_id=None,
+                name=path.rsplit("/", 1)[-1] or "/",
+                path=path,
+                node_type="file",
+                desktop_x=desktop_x,
+                desktop_y=desktop_y,
+                is_trashed=is_trashed,
+                original_path=original_path,
+            )
+            self.db.add(node)
+
+        await self.db.flush()
+
+    async def _delete_metadata(self, user_id: uuid.UUID, path: str) -> None:
+        """DB'dan metadata o'chirish."""
+        await self.db.execute(
+            delete(FileSystemNode).where(
+                and_(
+                    FileSystemNode.user_id == user_id,
+                    FileSystemNode.path == path,
+                )
+            )
+        )
+        await self.db.flush()
+
+    async def _update_metadata_path(self, user_id: uuid.UUID, old_path: str, new_path: str) -> None:
+        """Metadata path ni yangilash (rename/move uchun)."""
+        stmt = select(FileSystemNode).where(
+            and_(
+                FileSystemNode.user_id == user_id,
+                FileSystemNode.path == old_path,
+            )
+        )
+        result = await self.db.execute(stmt)
+        node = result.scalar_one_or_none()
+        if node:
+            node.path = new_path
+            node.name = new_path.rsplit("/", 1)[-1] or "/"
+            await self.db.flush()
+
+    # ── Public API ──
+
+    async def get_tree(self, user_id: uuid.UUID) -> FileNodeTreeResponse:
+        """Butun fayl tizimi daraxtini olish."""
+        raw_tree = await self.cfs.get_tree()
+        metadata_map = await self._get_metadata_map(user_id)
+        return _build_tree_response(raw_tree, user_id, self.cfs.base_path, metadata_map)
 
     async def get_node(self, user_id: uuid.UUID, path: str) -> FileNodeResponse:
-        node = await self._get_node_or_404(user_id, path)
-        return FileNodeResponse.model_validate(node)
+        """Bitta node haqida ma'lumot olish."""
+        raw = await self.cfs.stat_path(path)
+        if raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Node not found: {path}",
+            )
+
+        # DB'dan metadata olish
+        stmt = select(FileSystemNode).where(
+            and_(
+                FileSystemNode.user_id == user_id,
+                FileSystemNode.path == path,
+            )
+        )
+        result = await self.db.execute(stmt)
+        meta = result.scalar_one_or_none()
+
+        return _build_node_response(
+            raw,
+            user_id,
+            path,
+            self.cfs.base_path,
+            desktop_x=meta.desktop_x if meta else None,
+            desktop_y=meta.desktop_y if meta else None,
+            is_trashed=meta.is_trashed if meta else False,
+            original_path=meta.original_path if meta else None,
+        )
 
     async def list_directory(
         self,
@@ -229,120 +255,156 @@ class FileSystemService:
         sort_by: str = "name",
         sort_dir: str = "asc",
     ) -> DirectoryListingResponse:
-        parent = await self._get_node_or_404(user_id, path)
-        if parent.node_type != "directory":
+        """Papka tarkibini ro'yxatlash."""
+        # Parent node stat
+        parent_raw = await self.cfs.stat_path(path)
+        if parent_raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Directory not found: {path}",
+            )
+        if parent_raw.get("type") != "directory":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Not a directory",
             )
 
-        order_col = {
-            "name": FileSystemNode.name,
-            "size": FileSystemNode.size,
-            "created_at": FileSystemNode.created_at,
-            "updated_at": FileSystemNode.updated_at,
-        }.get(sort_by, FileSystemNode.name)
+        # Bolalar
+        children_raw = await self.cfs.list_directory(path)
+        metadata_map = await self._get_metadata_map(user_id)
 
-        order = order_col.asc() if sort_dir == "asc" else order_col.desc()
+        children: list[FileNodeResponse] = []
+        for child in children_raw:
+            child_container_path = child.get("path", "")
+            if child_container_path.startswith(self.cfs.base_path + "/"):
+                child_vfs = child_container_path[len(self.cfs.base_path) :]
+            elif child_container_path.startswith(self.cfs.base_path):
+                child_vfs = "/"
+            else:
+                child_vfs = child_container_path
 
-        stmt = (
-            select(FileSystemNode)
-            .where(
-                and_(
-                    FileSystemNode.user_id == user_id,
-                    FileSystemNode.parent_id == parent.id,
-                    FileSystemNode.is_trashed == False,  # noqa: E712
+            meta = metadata_map.get(child_vfs)
+            children.append(
+                _build_node_response(
+                    child,
+                    user_id,
+                    child_vfs,
+                    self.cfs.base_path,
+                    desktop_x=meta.desktop_x if meta else None,
+                    desktop_y=meta.desktop_y if meta else None,
                 )
             )
-            .order_by(order)
-        )
-        result = await self.db.execute(stmt)
-        children = result.scalars().all()
+
+        # Saralash
+        sort_key_map = {
+            "name": lambda n: n.name.lower(),
+            "size": lambda n: n.size,
+            "created_at": lambda n: n.created_at,
+            "updated_at": lambda n: n.updated_at,
+        }
+        key_fn = sort_key_map.get(sort_by, sort_key_map["name"])
+        children.sort(key=key_fn, reverse=(sort_dir == "desc"))
+
+        parent_response = _build_node_response(parent_raw, user_id, path, self.cfs.base_path)
 
         return DirectoryListingResponse(
             path=path,
-            node=FileNodeResponse.model_validate(parent),
-            children=[FileNodeResponse.model_validate(c) for c in children],
+            node=parent_response,
+            children=children,
             total=len(children),
         )
 
     async def create_node(self, user_id: uuid.UUID, data: CreateNodeRequest) -> FileNodeResponse:
-        parent = await self._get_node_or_404(user_id, data.parent_path)
-        if parent.node_type != "directory":
+        """Fayl yoki papka yaratish."""
+        # Parent mavjudligini tekshirish
+        parent_raw = await self.cfs.stat_path(data.parent_path)
+        if parent_raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Parent not found: {data.parent_path}",
+            )
+        if parent_raw.get("type") != "directory":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Parent is not a directory",
             )
 
-        unique_name = await self._generate_unique_name(user_id, data.parent_path, data.name)
-        new_path = self._build_path(data.parent_path, unique_name)
-
-        node = FileSystemNode(
-            user_id=user_id,
-            parent_id=parent.id,
-            name=unique_name,
-            path=new_path,
-            node_type=data.node_type,
-            mime_type=data.mime_type,
-            size=data.size,
+        # Unikal nom
+        unique_name = await self.cfs.generate_unique_name(data.parent_path, data.name)
+        new_vfs = (
+            f"/{unique_name}" if data.parent_path == "/" else f"{data.parent_path}/{unique_name}"
         )
-        self.db.add(node)
-        await self.db.flush()
-        await self.db.refresh(node)
 
-        return FileNodeResponse.model_validate(node)
+        # Container ichida yaratish
+        if data.node_type == "directory":
+            await self.cfs.create_directory(new_vfs)
+        else:
+            await self.cfs.create_file(new_vfs)
+
+        # Stat olish
+        raw = await self.cfs.stat_path(new_vfs)
+        if raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Node created but stat failed",
+            )
+
+        return _build_node_response(raw, user_id, new_vfs, self.cfs.base_path)
 
     async def rename_node(self, user_id: uuid.UUID, data: RenameNodeRequest) -> MoveResultResponse:
-        node = await self._get_node_or_404(user_id, data.path)
+        """Fayl/papkani qayta nomlash."""
         if data.path == "/":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot rename root",
             )
 
-        old_path = node.path
-        parent_path = old_path.rsplit("/", 1)[0] or "/"
-        new_path = self._build_path(parent_path, data.new_name)
-
-        # Check uniqueness
-        existing_stmt = select(FileSystemNode).where(
-            and_(
-                FileSystemNode.user_id == user_id,
-                FileSystemNode.path == new_path,
-                FileSystemNode.is_trashed == False,  # noqa: E712
+        # Mavjudligini tekshirish
+        if not await self.cfs.exists(data.path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Node not found: {data.path}",
             )
-        )
-        result = await self.db.execute(existing_stmt)
-        if result.scalar_one_or_none() is not None:
+
+        parent_path = data.path.rsplit("/", 1)[0] or "/"
+        new_path = f"/{data.new_name}" if parent_path == "/" else f"{parent_path}/{data.new_name}"
+
+        # Nom takrorlanishini tekshirish
+        if await self.cfs.exists(new_path):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Name already exists: {data.new_name}",
             )
 
-        # Update descendants first
-        await self._rewrite_descendant_paths(user_id, old_path, new_path)
+        # Container ichida rename
+        await self.cfs.rename(data.path, new_path)
 
-        # Update the node itself
-        node.name = data.new_name
-        node.path = new_path
-        await self.db.flush()
-        await self.db.refresh(node)
+        # DB metadata yangilash
+        await self._update_metadata_path(user_id, data.path, new_path)
+
+        # Stat olish
+        raw = await self.cfs.stat_path(new_path)
+        if raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Renamed but stat failed",
+            )
 
         return MoveResultResponse(
-            old_path=old_path,
+            old_path=data.path,
             new_path=new_path,
-            node=FileNodeResponse.model_validate(node),
+            node=_build_node_response(raw, user_id, new_path, self.cfs.base_path),
         )
 
     async def move_node(self, user_id: uuid.UUID, data: MoveNodeRequest) -> MoveResultResponse:
-        node = await self._get_node_or_404(user_id, data.source_path)
+        """Faylni boshqa papkaga ko'chirish."""
         if data.source_path == "/":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot move root",
             )
 
-        # Cannot move into itself
+        # O'ziga ko'chirish mumkin emas
         if data.dest_parent_path == data.source_path or data.dest_parent_path.startswith(
             data.source_path + "/"
         ):
@@ -351,159 +413,151 @@ class FileSystemService:
                 detail="Cannot move into itself or its descendant",
             )
 
-        dest_parent = await self._get_node_or_404(user_id, data.dest_parent_path)
-        if dest_parent.node_type != "directory":
+        # Mavjudlik tekshiruvi
+        if not await self.cfs.exists(data.source_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Source not found: {data.source_path}",
+            )
+
+        dest_raw = await self.cfs.stat_path(data.dest_parent_path)
+        if dest_raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Destination not found: {data.dest_parent_path}",
+            )
+        if dest_raw.get("type") != "directory":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Destination is not a directory",
             )
 
-        old_path = node.path
-        unique_name = await self._generate_unique_name(user_id, data.dest_parent_path, node.name)
-        new_path = self._build_path(data.dest_parent_path, unique_name)
+        # Nom unikal qilish
+        source_name = data.source_path.rsplit("/", 1)[-1]
+        unique_name = await self.cfs.generate_unique_name(data.dest_parent_path, source_name)
 
-        # Rewrite descendants
-        await self._rewrite_descendant_paths(user_id, old_path, new_path)
+        # Agar nom o'zgarsa, avval rename kerak
+        if unique_name != source_name:
+            parent_path = data.source_path.rsplit("/", 1)[0] or "/"
+            temp_path = f"/{unique_name}" if parent_path == "/" else f"{parent_path}/{unique_name}"
+            await self.cfs.rename(data.source_path, temp_path)
+            new_vfs = await self.cfs.move(temp_path, data.dest_parent_path)
+        else:
+            new_vfs = await self.cfs.move(data.source_path, data.dest_parent_path)
 
-        # Update node
-        node.parent_id = dest_parent.id
-        node.name = unique_name
-        node.path = new_path
-        await self.db.flush()
-        await self.db.refresh(node)
+        # DB metadata yangilash
+        await self._update_metadata_path(user_id, data.source_path, new_vfs)
+
+        raw = await self.cfs.stat_path(new_vfs)
+        if raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Moved but stat failed",
+            )
 
         return MoveResultResponse(
-            old_path=old_path,
-            new_path=new_path,
-            node=FileNodeResponse.model_validate(node),
+            old_path=data.source_path,
+            new_path=new_vfs,
+            node=_build_node_response(raw, user_id, new_vfs, self.cfs.base_path),
         )
 
     async def copy_node(self, user_id: uuid.UUID, data: CopyNodeRequest) -> CopyResultResponse:
-        source = await self._get_node_or_404(user_id, data.source_path)
-        dest_parent = await self._get_node_or_404(user_id, data.dest_parent_path)
-        if dest_parent.node_type != "directory":
+        """Faylni nusxalash."""
+        if not await self.cfs.exists(data.source_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Source not found: {data.source_path}",
+            )
+
+        dest_raw = await self.cfs.stat_path(data.dest_parent_path)
+        if dest_raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Destination not found: {data.dest_parent_path}",
+            )
+        if dest_raw.get("type") != "directory":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Destination is not a directory",
             )
 
-        unique_name = await self._generate_unique_name(user_id, data.dest_parent_path, source.name)
-        new_root_path = self._build_path(data.dest_parent_path, unique_name)
+        # Nom unikal qilish
+        source_name = data.source_path.rsplit("/", 1)[-1]
+        unique_name = await self.cfs.generate_unique_name(data.dest_parent_path, source_name)
 
-        # Deep copy: get source + all descendants
-        descendants_stmt = select(FileSystemNode).where(
-            and_(
-                FileSystemNode.user_id == user_id,
-                FileSystemNode.path.like(f"{data.source_path}/%"),
-                FileSystemNode.is_trashed == False,  # noqa: E712
+        # Agar nom o'zgarsa, nusxa yaratib keyin rename
+        new_vfs = await self.cfs.copy(data.source_path, data.dest_parent_path)
+        if unique_name != source_name:
+            # Nusxa source_name bilan yaratildi, uni rename qilish kerak
+            dest_vfs = (
+                f"/{source_name}"
+                if data.dest_parent_path == "/"
+                else f"{data.dest_parent_path}/{source_name}"
             )
-        )
-        result = await self.db.execute(descendants_stmt)
-        descendants = result.scalars().all()
-
-        # Create root copy
-        root_copy = FileSystemNode(
-            user_id=user_id,
-            parent_id=dest_parent.id,
-            name=unique_name,
-            path=new_root_path,
-            node_type=source.node_type,
-            mime_type=source.mime_type,
-            size=source.size,
-            content_ref=source.content_ref,
-        )
-        self.db.add(root_copy)
-        await self.db.flush()
-
-        # Map old IDs to new IDs for parent_id resolution
-        id_map: dict[uuid.UUID, uuid.UUID] = {source.id: root_copy.id}
-
-        for desc in descendants:
-            new_desc_path = new_root_path + desc.path[len(data.source_path) :]
-            new_parent_id = id_map.get(desc.parent_id) if desc.parent_id else None
-
-            copy = FileSystemNode(
-                user_id=user_id,
-                parent_id=new_parent_id,
-                name=desc.name,
-                path=new_desc_path,
-                node_type=desc.node_type,
-                mime_type=desc.mime_type,
-                size=desc.size,
-                content_ref=desc.content_ref,
+            final_vfs = (
+                f"/{unique_name}"
+                if data.dest_parent_path == "/"
+                else f"{data.dest_parent_path}/{unique_name}"
             )
-            self.db.add(copy)
-            await self.db.flush()
-            id_map[desc.id] = copy.id
+            await self.cfs.rename(dest_vfs, final_vfs)
+            new_vfs = final_vfs
 
-        await self.db.refresh(root_copy)
+        raw = await self.cfs.stat_path(new_vfs)
+        if raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Copied but stat failed",
+            )
 
         return CopyResultResponse(
             source_path=data.source_path,
-            new_path=new_root_path,
-            node=FileNodeResponse.model_validate(root_copy),
+            new_path=new_vfs,
+            node=_build_node_response(raw, user_id, new_vfs, self.cfs.base_path),
         )
 
     async def delete_node(self, user_id: uuid.UUID, data: DeleteNodeRequest) -> FileNodeResponse:
-        node = await self._get_node_or_404(user_id, data.path)
+        """Faylni o'chirish (trash yoki permanent)."""
         if data.path == "/":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete root",
             )
 
+        # O'chirishdan oldin stat olish
+        raw = await self.cfs.stat_path(data.path)
+        if raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Node not found: {data.path}",
+            )
+
+        response = _build_node_response(raw, user_id, data.path, self.cfs.base_path)
+
         if data.permanent:
-            # Hard delete — remove from DB
-            await self.db.execute(
-                delete(FileSystemNode).where(
-                    and_(
-                        FileSystemNode.user_id == user_id,
-                        FileSystemNode.path.like(f"{data.path}/%"),
-                    )
-                )
+            # To'liq o'chirish
+            await self.cfs.delete(data.path)
+            await self._delete_metadata(user_id, data.path)
+        else:
+            # Trash ga ko'chirish
+            trash_vfs = await self.cfs.move_to_trash(data.path)
+            # DB'ga original_path saqlash (restore uchun)
+            await self._upsert_metadata(
+                user_id,
+                trash_vfs,
+                is_trashed=True,
+                original_path=data.path,
             )
-            response = FileNodeResponse.model_validate(node)
-            await self.db.delete(node)
-            await self.db.flush()
-            return response
+            # Eski path metadata ni o'chirish
+            await self._delete_metadata(user_id, data.path)
 
-        # Soft delete — move to trash
-        now = datetime.now(UTC)
-        trash_path = f"/.Trash/{node.name}"
+            response.is_trashed = True
+            response.original_path = data.path
+            response.path = trash_vfs
 
-        # Ensure unique name in trash
-        trash_parent = await self._get_node_or_404(user_id, "/.Trash")
-        unique_name = await self._generate_unique_name(user_id, "/.Trash", node.name)
-        trash_path = self._build_path("/.Trash", unique_name)
-
-        # Mark descendants as trashed
-        await self.db.execute(
-            update(FileSystemNode)
-            .where(
-                and_(
-                    FileSystemNode.user_id == user_id,
-                    FileSystemNode.path.like(f"{data.path}/%"),
-                )
-            )
-            .values(is_trashed=True, trashed_at=now)
-        )
-
-        # Rewrite descendant paths
-        await self._rewrite_descendant_paths(user_id, data.path, trash_path)
-
-        # Update the node itself
-        node.original_path = data.path
-        node.is_trashed = True
-        node.trashed_at = now
-        node.parent_id = trash_parent.id
-        node.name = unique_name
-        node.path = trash_path
-        await self.db.flush()
-        await self.db.refresh(node)
-
-        return FileNodeResponse.model_validate(node)
+        return response
 
     async def bulk_delete(self, user_id: uuid.UUID, data: BulkDeleteRequest) -> BulkResultResponse:
+        """Ko'plab fayllarni o'chirish."""
         succeeded: list[str] = []
         failed: list[dict[str, str | None]] = []
 
@@ -522,6 +576,7 @@ class FileSystemService:
         )
 
     async def bulk_move(self, user_id: uuid.UUID, data: BulkMoveRequest) -> BulkResultResponse:
+        """Ko'plab fayllarni ko'chirish."""
         succeeded: list[str] = []
         failed: list[dict[str, str | None]] = []
 
@@ -541,22 +596,42 @@ class FileSystemService:
         )
 
     async def list_trash(self, user_id: uuid.UUID) -> list[FileNodeResponse]:
-        trash = await self._get_node_or_404(user_id, "/.Trash")
-        stmt = select(FileSystemNode).where(
-            and_(
-                FileSystemNode.user_id == user_id,
-                FileSystemNode.parent_id == trash.id,
-                FileSystemNode.is_trashed == True,  # noqa: E712
+        """Trash ichidagi fayllar ro'yxati."""
+        try:
+            children_raw = await self.cfs.list_directory("/.Trash")
+        except HTTPException:
+            return []
+
+        # DB'dan original_path ma'lumotlarini olish
+        trash_meta = await self._get_trash_metadata(user_id)
+
+        results: list[FileNodeResponse] = []
+        for child in children_raw:
+            child_container_path = child.get("path", "")
+            if child_container_path.startswith(self.cfs.base_path + "/"):
+                child_vfs = child_container_path[len(self.cfs.base_path) :]
+            else:
+                child_vfs = child_container_path
+
+            meta = trash_meta.get(child_vfs)
+            results.append(
+                _build_node_response(
+                    child,
+                    user_id,
+                    child_vfs,
+                    self.cfs.base_path,
+                    is_trashed=True,
+                    original_path=meta.original_path if meta else None,
+                )
             )
-        )
-        result = await self.db.execute(stmt)
-        nodes = result.scalars().all()
-        return [FileNodeResponse.model_validate(n) for n in nodes]
+
+        return results
 
     async def restore_node(
         self, user_id: uuid.UUID, data: RestoreNodeRequest
     ) -> MoveResultResponse:
-        # Find node in trash (trashed nodes)
+        """Trash'dan faylni tiklash."""
+        # DB'dan original_path olish
         stmt = select(FileSystemNode).where(
             and_(
                 FileSystemNode.user_id == user_id,
@@ -565,99 +640,114 @@ class FileSystemService:
             )
         )
         result = await self.db.execute(stmt)
-        node = result.scalar_one_or_none()
-        if node is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Trashed node not found: {data.path}",
-            )
+        meta = result.scalar_one_or_none()
 
-        original_path = node.original_path
-        if not original_path:
+        if meta is None or not meta.original_path:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Original path unknown, cannot restore",
             )
 
-        # Determine parent from original path
+        original_path = meta.original_path
         parent_path = original_path.rsplit("/", 1)[0] or "/"
-        parent = await self._get_node_or_404(user_id, parent_path)
 
-        unique_name = await self._generate_unique_name(user_id, parent_path, node.name)
-        new_path = self._build_path(parent_path, unique_name)
+        # Parent mavjudligini tekshirish
+        if not await self.cfs.exists(parent_path):
+            await self.cfs.create_directory(parent_path)
 
-        old_path = node.path
+        # Unikal nom
+        name = original_path.rsplit("/", 1)[-1]
+        unique_name = await self.cfs.generate_unique_name(parent_path, name)
+        new_path = f"/{unique_name}" if parent_path == "/" else f"{parent_path}/{unique_name}"
 
-        # Un-trash descendants
-        await self.db.execute(
-            update(FileSystemNode)
-            .where(
-                and_(
-                    FileSystemNode.user_id == user_id,
-                    FileSystemNode.path.like(f"{old_path}/%"),
-                )
+        # Container ichida ko'chirish (rename VFS pathlar bilan ishlaydi)
+        source_container = self.cfs._vfs_to_container(data.path)
+        dest_container = self.cfs._vfs_to_container(new_path)
+        _, exit_code = await self.cfs._exec_cmd(["mv", source_container, dest_container])
+        if exit_code != 0:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to restore: {data.path}",
             )
-            .values(is_trashed=False, trashed_at=None)
-        )
 
-        # Rewrite descendant paths
-        await self._rewrite_descendant_paths(user_id, old_path, new_path)
+        # DB metadata tozalash
+        await self._delete_metadata(user_id, data.path)
 
-        # Update the node
-        node.parent_id = parent.id
-        node.name = unique_name
-        node.path = new_path
-        node.is_trashed = False
-        node.trashed_at = None
-        node.original_path = None
-        await self.db.flush()
-        await self.db.refresh(node)
+        raw = await self.cfs.stat_path(new_path)
+        if raw is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Restored but stat failed",
+            )
 
         return MoveResultResponse(
-            old_path=old_path,
+            old_path=data.path,
             new_path=new_path,
-            node=FileNodeResponse.model_validate(node),
+            node=_build_node_response(raw, user_id, new_path, self.cfs.base_path),
         )
 
     async def empty_trash(self, user_id: uuid.UUID) -> int:
-        stmt = delete(FileSystemNode).where(
-            and_(
-                FileSystemNode.user_id == user_id,
-                FileSystemNode.is_trashed == True,  # noqa: E712
+        """Trash'ni tozalash."""
+        count = await self.cfs.empty_trash()
+
+        # DB'dan barcha trash metadata ni o'chirish
+        await self.db.execute(
+            delete(FileSystemNode).where(
+                and_(
+                    FileSystemNode.user_id == user_id,
+                    FileSystemNode.is_trashed == True,  # noqa: E712
+                )
             )
         )
-        result = await self.db.execute(stmt)
         await self.db.flush()
-        return result.rowcount  # type: ignore[return-value]
+
+        return count
 
     async def update_desktop_positions(
         self,
         user_id: uuid.UUID,
         data: BatchUpdateDesktopPositionsRequest,
     ) -> list[FileNodeResponse]:
-        results: list[FileSystemNode] = []
+        """Desktop pozitsiyalarni yangilash."""
+        results: list[FileNodeResponse] = []
+
         for pos in data.positions:
-            node = await self._get_node_or_404(user_id, pos.path)
-            node.desktop_x = pos.x
-            node.desktop_y = pos.y
-            results.append(node)
-        await self.db.flush()
-        for node in results:
-            await self.db.refresh(node)
-        return [FileNodeResponse.model_validate(n) for n in results]
+            raw = await self.cfs.stat_path(pos.path)
+            if not raw:
+                continue
+
+            await self._upsert_metadata(user_id, pos.path, desktop_x=pos.x, desktop_y=pos.y)
+
+            results.append(
+                _build_node_response(
+                    raw,
+                    user_id,
+                    pos.path,
+                    self.cfs.base_path,
+                    desktop_x=pos.x,
+                    desktop_y=pos.y,
+                )
+            )
+
+        return results
 
     async def search(
         self, user_id: uuid.UUID, query: str, scope_path: str | None = None
     ) -> list[FileNodeResponse]:
-        conditions = [
-            FileSystemNode.user_id == user_id,
-            FileSystemNode.is_trashed == False,  # noqa: E712
-            FileSystemNode.name.ilike(f"%{query}%"),
-        ]
-        if scope_path:
-            conditions.append(FileSystemNode.path.like(f"{scope_path}/%"))
+        """Fayl nomi bo'yicha qidirish."""
+        scope = scope_path or "/"
+        raw_results = await self.cfs.search(query, scope)
 
-        stmt = select(FileSystemNode).where(and_(*conditions)).limit(50)
-        result = await self.db.execute(stmt)
-        nodes = result.scalars().all()
-        return [FileNodeResponse.model_validate(n) for n in nodes]
+        results: list[FileNodeResponse] = []
+        for raw in raw_results:
+            container_path = raw.get("path", "")
+            if container_path.startswith(self.cfs.base_path + "/"):
+                vfs_path = container_path[len(self.cfs.base_path) :]
+            elif container_path == self.cfs.base_path:
+                vfs_path = "/"
+            else:
+                vfs_path = container_path
+
+            results.append(_build_node_response(raw, user_id, vfs_path, self.cfs.base_path))
+
+        return results
