@@ -21,8 +21,11 @@ from aiso_core.schemas.file_system import (
     FileNodeTreeResponse,
     MoveNodeRequest,
     MoveResultResponse,
+    ReadFileResponse,
     RenameNodeRequest,
     RestoreNodeRequest,
+    WriteFileRequest,
+    WriteFileResponse,
 )
 from aiso_core.services.file_system_service import FileSystemService
 
@@ -213,6 +216,28 @@ async def update_desktop_positions(
     container_name = await _ensure_container_running(current_user)
     service = _get_service(db, container_name)
     return await service.update_desktop_positions(current_user.id, data)
+
+
+@router.get("/read", response_model=ReadFileResponse)
+async def read_file(
+    path: str = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
+    return await service.read_file(current_user.id, path)
+
+
+@router.post("/write", response_model=WriteFileResponse)
+async def write_file(
+    data: WriteFileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    container_name = await _ensure_container_running(current_user)
+    service = _get_service(db, container_name)
+    return await service.write_file(current_user.id, data.path, data.content)
 
 
 @router.get("/search", response_model=list[FileNodeResponse])
