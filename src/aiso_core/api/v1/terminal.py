@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -77,16 +78,19 @@ async def terminal_ws(websocket: WebSocket, token: str | None = None) -> None:
             await db.commit()
 
             if result["status"] != "running":
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Container ishga tushmadi",
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "Container ishga tushmadi",
+                    }
+                )
                 await websocket.close()
                 return
 
             # Yangi yaratilgan yoki qayta ishga tushirilgan container tayyor bo'lishini kutish
             was_reprovisioned = "provisioned" in result.get("message", "")
             if was_reprovisioned:
+
                 def _wait_for_ready() -> None:
                     """Container to'liq tayyor bo'lguncha kutish."""
                     import time
@@ -110,10 +114,12 @@ async def terminal_ws(websocket: WebSocket, token: str | None = None) -> None:
         except Exception:
             logger.exception("Container start xatolik: user_id=%s", user.id)
             try:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Container xatolik",
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "Container xatolik",
+                    }
+                )
                 await websocket.close()
             except Exception:
                 pass
@@ -127,19 +133,23 @@ async def terminal_ws(websocket: WebSocket, token: str | None = None) -> None:
         except Exception:
             logger.exception("Terminal session start xatolik: user_id=%s", user.id)
             try:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Terminal sessiya yaratib bo'lmadi",
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "Terminal sessiya yaratib bo'lmadi",
+                    }
+                )
                 await websocket.close()
             except Exception:
                 pass
             return
 
-        await websocket.send_json({
-            "type": "ready",
-            "sessionId": session.session_id,
-        })
+        await websocket.send_json(
+            {
+                "type": "ready",
+                "sessionId": session.session_id,
+            }
+        )
         logger.debug("'ready' sent, starting I/O loop")
 
         # Bi-directional I/O
@@ -152,6 +162,7 @@ async def terminal_ws(websocket: WebSocket, token: str | None = None) -> None:
                         # Container to'xtagan bo'lishi mumkin — tekshirish
                         reason = "Docker exec yopildi"
                         try:
+
                             def _check_container() -> str:
                                 client = _get_docker_client()
                                 c = client.containers.get(container_name)
@@ -159,17 +170,18 @@ async def terminal_ws(websocket: WebSocket, token: str | None = None) -> None:
                                     logs = c.logs(tail=3).decode().strip()
                                     return f"Container to'xtadi ({c.status}): {logs}"
                                 return "Docker exec EOF"
+
                             reason = await asyncio.to_thread(_check_container)
                         except Exception:
                             pass
                         logger.debug("read: EOF — %s", reason)
-                        try:
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": reason,
-                            })
-                        except Exception:
-                            pass
+                        with contextlib.suppress(Exception):
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "message": reason,
+                                }
+                            )
                         break
                     await websocket.send_bytes(data)
             except WebSocketDisconnect:
@@ -218,7 +230,5 @@ async def terminal_ws(websocket: WebSocket, token: str | None = None) -> None:
         finally:
             logger.debug("Cleaning up session + websocket")
             await session.close()
-            try:
+            with contextlib.suppress(Exception):
                 await websocket.close()
-            except Exception:
-                pass
