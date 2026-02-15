@@ -23,16 +23,6 @@ class User(Base, UUIDMixin, TimestampMixin):
     meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
 
     # Relationships
-    apps: Mapped[list[App]] = relationship(  # noqa: F821
-        back_populates="author",
-        foreign_keys="App.author_id",
-    )
-    installs: Mapped[list[AppInstall]] = relationship(  # noqa: F821
-        back_populates="user",
-    )
-    reviews: Mapped[list[AppReview]] = relationship(  # noqa: F821
-        back_populates="user",
-    )
     container: Mapped[UserContainer | None] = relationship(  # noqa: F821
         back_populates="user",
         uselist=False,
