@@ -124,3 +124,23 @@ class BulkResultItem(BaseModel):
 class BulkResultResponse(BaseModel):
     succeeded: list[str]
     failed: list[BulkResultItem]
+
+
+# ── File content schemas ──
+
+
+class ReadFileResponse(BaseModel):
+    content: str
+    size: int
+    encoding: str = "utf-8"
+
+
+class WriteFileRequest(BaseModel):
+    path: str
+    content: str
+
+
+class WriteFileResponse(BaseModel):
+    path: str
+    size: int
+    updated_at: datetime

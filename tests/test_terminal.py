@@ -21,7 +21,6 @@ from aiso_core.models.user import User
 from aiso_core.services.terminal_service import TerminalSession, _extract_socket
 from aiso_core.utils.security import create_access_token
 
-
 # ── Fixtures ──
 
 
@@ -55,11 +54,13 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
 
     # exec_create har safar yangi ID qaytaradi
     # 3 ta exec: screenrc yaratish + screen create + screen attach
-    exec_ids = iter([
-        "exec_screenrc_setup",
-        "exec_screen_create_123",
-        "exec_screen_attach_456",
-    ])
+    exec_ids = iter(
+        [
+            "exec_screenrc_setup",
+            "exec_screen_create_123",
+            "exec_screen_attach_456",
+        ]
+    )
     client.api.exec_create.side_effect = lambda *a, **kw: {"Id": next(exec_ids)}
 
     # exec_start natijalari:
@@ -88,9 +89,10 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
 
 
 class TestTerminalSession:
-
     async def test_start_creates_screen_and_attaches(
-        self, mock_docker_client: MagicMock, mock_socket: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
+        mock_socket: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -125,7 +127,8 @@ class TestTerminalSession:
             assert "-r" in third_cmd
 
     async def test_read_returns_data(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -138,7 +141,9 @@ class TestTerminalSession:
             assert data == b"aisu@aisu:~$ "
 
     async def test_write_sends_data(
-        self, mock_docker_client: MagicMock, mock_socket: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
+        mock_socket: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -151,7 +156,9 @@ class TestTerminalSession:
             mock_socket.sendall.assert_called_once_with(b"ls\n")
 
     async def test_write_after_close_is_noop(
-        self, mock_docker_client: MagicMock, mock_socket: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
+        mock_socket: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -165,7 +172,8 @@ class TestTerminalSession:
             mock_socket.sendall.assert_not_called()
 
     async def test_read_after_close_returns_empty(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -179,7 +187,8 @@ class TestTerminalSession:
             assert data == b""
 
     async def test_close_is_idempotent(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -192,7 +201,8 @@ class TestTerminalSession:
             assert session.is_closed
 
     async def test_resize_calls_docker_api(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -203,11 +213,14 @@ class TestTerminalSession:
 
             await session.resize(40, 120)
             mock_docker_client.api.exec_resize.assert_called_once_with(
-                "exec_screen_attach_456", height=40, width=120,
+                "exec_screen_attach_456",
+                height=40,
+                width=120,
             )
 
     async def test_read_oserror_when_closed_returns_empty(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         bad_socket = MagicMock(spec=socket.socket)
         bad_socket.recv.side_effect = OSError("Connection reset")
@@ -217,7 +230,9 @@ class TestTerminalSession:
         socket_wrapper._sock = bad_socket
         mock_docker_client.api.exec_start.side_effect = [b"", b"", socket_wrapper]
         mock_docker_client.api.exec_create.side_effect = [
-            {"Id": "e1"}, {"Id": "e2"}, {"Id": "e3"},
+            {"Id": "e1"},
+            {"Id": "e2"},
+            {"Id": "e3"},
         ]
 
         with patch(
@@ -232,7 +247,8 @@ class TestTerminalSession:
             assert data == b""
 
     async def test_read_oserror_when_open_raises(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         bad_socket = MagicMock(spec=socket.socket)
         bad_socket.recv.side_effect = OSError("Connection reset")
@@ -242,7 +258,9 @@ class TestTerminalSession:
         socket_wrapper._sock = bad_socket
         mock_docker_client.api.exec_start.side_effect = [b"", b"", socket_wrapper]
         mock_docker_client.api.exec_create.side_effect = [
-            {"Id": "e1"}, {"Id": "e2"}, {"Id": "e3"},
+            {"Id": "e1"},
+            {"Id": "e2"},
+            {"Id": "e3"},
         ]
 
         with patch(
@@ -266,13 +284,15 @@ class TestTerminalSession:
         assert s._screen_session == "term_my-id"
 
     async def test_screen_session_failed_raises(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         """screen yaratilmasa RuntimeError ko'tarilishi kerak."""
         mock_docker_client.api.exec_inspect.return_value = {"ExitCode": 1}
         # screenrc yaratish muvaffaqiyatli, lekin screen create muvaffaqiyatsiz
         mock_docker_client.api.exec_create.side_effect = [
-            {"Id": "e_screenrc"}, {"Id": "e1"},
+            {"Id": "e_screenrc"},
+            {"Id": "e1"},
         ]
         mock_docker_client.api.exec_start.side_effect = [b"", b"no screen running"]
 
@@ -286,7 +306,6 @@ class TestTerminalSession:
 
 
 class TestExtractSocket:
-
     def test_extracts_from_sock_attribute(self) -> None:
         raw = MagicMock(spec=socket.socket)
         wrapper = MagicMock()
@@ -324,7 +343,8 @@ class TestTerminalWebSocket:
 
     @pytest.fixture
     async def user_and_token(
-        self, db_session: AsyncSession,
+        self,
+        db_session: AsyncSession,
     ) -> tuple[User, str]:
         user = User(
             id=uuid.uuid4(),
@@ -359,7 +379,7 @@ class TestTerminalWebSocket:
                 return b""
             try:
                 return await asyncio.wait_for(read_queue.get(), timeout=30.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return b""
 
         session.read = mock_read
@@ -425,8 +445,9 @@ class TestTerminalWebSocket:
         async_session_factory: async_sessionmaker[AsyncSession],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from aiso_core.main import app
         from starlette.testclient import TestClient
+
+        from aiso_core.main import app
 
         monkeypatch.setattr(settings, "container_enabled", False)
         monkeypatch.setattr(
@@ -434,18 +455,18 @@ class TestTerminalWebSocket:
             async_session_factory,
         )
 
-        with TestClient(app) as tc:
-            with pytest.raises(Exception):
-                with tc.websocket_connect("/ws/terminal"):
-                    pass
+        with TestClient(app) as tc, pytest.raises(Exception):
+            with tc.websocket_connect("/ws/terminal"):
+                pass
 
     async def test_invalid_token_rejects(
         self,
         async_session_factory: async_sessionmaker[AsyncSession],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from aiso_core.main import app
         from starlette.testclient import TestClient
+
+        from aiso_core.main import app
 
         monkeypatch.setattr(settings, "container_enabled", False)
         monkeypatch.setattr(
@@ -453,10 +474,9 @@ class TestTerminalWebSocket:
             async_session_factory,
         )
 
-        with TestClient(app) as tc:
-            with pytest.raises(Exception):
-                with tc.websocket_connect("/ws/terminal?token=invalid_token"):
-                    pass
+        with TestClient(app) as tc, pytest.raises(Exception):
+            with tc.websocket_connect("/ws/terminal?token=invalid_token"):
+                pass
 
     async def test_full_session_lifecycle(
         self,
@@ -468,32 +488,33 @@ class TestTerminalWebSocket:
         """To'liq sessiya: connect → ready → input → output → disconnect."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
-            async_session_factory, mock_terminal_session, monkeypatch,
+            async_session_factory,
+            mock_terminal_session,
+            monkeypatch,
         )
 
         from starlette.testclient import TestClient
 
-        with patches[0], patches[1], patches[2]:
-            with TestClient(app) as tc:
-                with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
-                    msg1 = ws.receive_json()
-                    assert msg1["type"] == "status"
-                    assert msg1["status"] == "starting-container"
+        with patches[0], patches[1], patches[2], TestClient(app) as tc:
+            with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
+                msg1 = ws.receive_json()
+                assert msg1["type"] == "status"
+                assert msg1["status"] == "starting-container"
 
-                    msg2 = ws.receive_json()
-                    assert msg2["type"] == "ready"
-                    assert "sessionId" in msg2
+                msg2 = ws.receive_json()
+                assert msg2["type"] == "ready"
+                assert "sessionId" in msg2
 
-                    prompt = ws.receive_bytes()
-                    assert b"aisu" in prompt
+                prompt = ws.receive_bytes()
+                assert b"aisu" in prompt
 
-                    ws.send_bytes(b"l")
-                    echo = ws.receive_bytes()
-                    assert echo == b"l"
+                ws.send_bytes(b"l")
+                echo = ws.receive_bytes()
+                assert echo == b"l"
 
-                    ws.send_text(json.dumps({"type": "resize", "rows": 40, "cols": 120}))
-                    time.sleep(0.1)
-                    mock_terminal_session.resize.assert_called_with(40, 120)
+                ws.send_text(json.dumps({"type": "resize", "rows": 40, "cols": 120}))
+                time.sleep(0.1)
+                mock_terminal_session.resize.assert_called_with(40, 120)
 
     async def test_session_survives_idle_period(
         self,
@@ -505,23 +526,24 @@ class TestTerminalWebSocket:
         """Sessiya idle davrda ham uzilmasligi kerak."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
-            async_session_factory, mock_terminal_session, monkeypatch,
+            async_session_factory,
+            mock_terminal_session,
+            monkeypatch,
         )
 
         from starlette.testclient import TestClient
 
-        with patches[0], patches[1], patches[2]:
-            with TestClient(app) as tc:
-                with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
-                    ws.receive_json()  # status
-                    ws.receive_json()  # ready
-                    ws.receive_bytes()  # prompt
+        with patches[0], patches[1], patches[2], TestClient(app) as tc:
+            with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
+                ws.receive_json()  # status
+                ws.receive_json()  # ready
+                ws.receive_bytes()  # prompt
 
-                    time.sleep(1.0)
+                time.sleep(1.0)
 
-                    ws.send_bytes(b"w")
-                    echo = ws.receive_bytes()
-                    assert echo == b"w"
+                ws.send_bytes(b"w")
+                echo = ws.receive_bytes()
+                assert echo == b"w"
 
     async def test_enter_command_returns_output(
         self,
@@ -533,24 +555,25 @@ class TestTerminalWebSocket:
         """Enter bosilganda buyruq natijasi qaytishi kerak."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
-            async_session_factory, mock_terminal_session, monkeypatch,
+            async_session_factory,
+            mock_terminal_session,
+            monkeypatch,
         )
 
         from starlette.testclient import TestClient
 
-        with patches[0], patches[1], patches[2]:
-            with TestClient(app) as tc:
-                with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
-                    ws.receive_json()  # status
-                    ws.receive_json()  # ready
-                    ws.receive_bytes()  # prompt
+        with patches[0], patches[1], patches[2], TestClient(app) as tc:
+            with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
+                ws.receive_json()  # status
+                ws.receive_json()  # ready
+                ws.receive_bytes()  # prompt
 
-                    ws.send_bytes(b"\r")
-                    echo1 = ws.receive_bytes()
-                    assert echo1 == b"\r"
+                ws.send_bytes(b"\r")
+                echo1 = ws.receive_bytes()
+                assert echo1 == b"\r"
 
-                    output = ws.receive_bytes()
-                    assert b"aisu@aisu:~$" in output
+                output = ws.receive_bytes()
+                assert b"aisu@aisu:~$" in output
 
     async def test_multiple_rapid_inputs(
         self,
@@ -562,22 +585,23 @@ class TestTerminalWebSocket:
         """Tez ketma-ket input da ham barcha data kelishi kerak."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
-            async_session_factory, mock_terminal_session, monkeypatch,
+            async_session_factory,
+            mock_terminal_session,
+            monkeypatch,
         )
 
         from starlette.testclient import TestClient
 
-        with patches[0], patches[1], patches[2]:
-            with TestClient(app) as tc:
-                with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
-                    ws.receive_json()  # status
-                    ws.receive_json()  # ready
-                    ws.receive_bytes()  # prompt
+        with patches[0], patches[1], patches[2], TestClient(app) as tc:
+            with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
+                ws.receive_json()  # status
+                ws.receive_json()  # ready
+                ws.receive_bytes()  # prompt
 
-                    for ch in b"helloworld":
-                        ws.send_bytes(bytes([ch]))
+                for ch in b"helloworld":
+                    ws.send_bytes(bytes([ch]))
 
-                    received = b""
-                    for _ in range(10):
-                        received += ws.receive_bytes()
-                    assert received == b"helloworld"
+                received = b""
+                for _ in range(10):
+                    received += ws.receive_bytes()
+                assert received == b"helloworld"

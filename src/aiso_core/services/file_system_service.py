@@ -29,8 +29,10 @@ from aiso_core.schemas.file_system import (
     FileNodeTreeResponse,
     MoveNodeRequest,
     MoveResultResponse,
+    ReadFileResponse,
     RenameNodeRequest,
     RestoreNodeRequest,
+    WriteFileResponse,
     path_to_uuid,
 )
 from aiso_core.services.container_fs_service import ContainerFsService
@@ -730,6 +732,27 @@ class FileSystemService:
             )
 
         return results
+
+    async def read_file(self, user_id: uuid.UUID, path: str) -> ReadFileResponse:
+        """Fayl kontentini o'qish."""
+        data = await self.cfs.read_file(path)
+        return ReadFileResponse(
+            content=data["content"],
+            size=data["size"],
+            encoding=data.get("encoding", "utf-8"),
+        )
+
+    async def write_file(self, user_id: uuid.UUID, path: str, content: str) -> WriteFileResponse:
+        """Fayl kontentini yozish."""
+        await self.cfs.write_file(path, content)
+        raw = await self.cfs.stat_path(path)
+        size = raw.get("size", 0) if raw else len(content.encode("utf-8"))
+        mtime = raw.get("mtime", 0) if raw else 0
+        return WriteFileResponse(
+            path=path,
+            size=size,
+            updated_at=_ts_from_epoch(mtime) if mtime else datetime.now(UTC),
+        )
 
     async def search(
         self, user_id: uuid.UUID, query: str, scope_path: str | None = None

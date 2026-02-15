@@ -498,6 +498,123 @@ class ContainerFsService:
                 )
         return count
 
+    async def read_file(self, vfs_path: str, max_size: int = 2 * 1024 * 1024) -> dict:
+        """Fayl kontentini o'qish. UTF-8 matn fayllar uchun.
+
+        Returns: {"content": str, "size": int, "encoding": "utf-8"}
+        Raises: 404 (not found), 400 (directory), 413 (too large), 415 (binary)
+        """
+        _validate_path(vfs_path)
+        container_path = self._vfs_to_container(vfs_path)
+
+        script = f"""
+import json, os, sys
+
+path = "{container_path}"
+max_size = {max_size}
+
+if not os.path.exists(path):
+    print(json.dumps({{"error": "not_found"}}))
+    sys.exit(0)
+
+if os.path.isdir(path):
+    print(json.dumps({{"error": "is_directory"}}))
+    sys.exit(0)
+
+size = os.path.getsize(path)
+if size > max_size:
+    print(json.dumps({{"error": "too_large", "size": size}}))
+    sys.exit(0)
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    print(json.dumps({{"content": content, "size": size, "encoding": "utf-8"}}))
+except UnicodeDecodeError:
+    print(json.dumps({{"error": "binary_file"}}))
+    sys.exit(0)
+"""
+        output = await self._exec_python(script)
+
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError as exc:
+            logger.error("read_file JSON parse error: %s", output[:500])
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to read file",
+            ) from exc
+
+        if "error" in data:
+            err = data["error"]
+            if err == "not_found":
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"File not found: {vfs_path}",
+                )
+            if err == "is_directory":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Path is a directory: {vfs_path}",
+                )
+            if err == "too_large":
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File too large: {data.get('size', 0)} bytes (max {max_size})",
+                )
+            if err == "binary_file":
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail=f"Binary file cannot be opened as text: {vfs_path}",
+                )
+
+        return data
+
+    async def write_file(self, vfs_path: str, content: str) -> None:
+        """Fayl kontentini yozish. Fayl mavjud bo'lmasa yaratadi."""
+        _validate_path(vfs_path)
+        container_path = self._vfs_to_container(vfs_path)
+
+        # Base64 orqali xavfsiz uzatish (matnda maxsus belgilar bo'lishi mumkin)
+        import base64
+
+        encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
+
+        script = f"""
+import json, os, sys, base64
+
+path = "{container_path}"
+encoded = "{encoded}"
+
+try:
+    content = base64.b64decode(encoded).decode("utf-8")
+    parent = os.path.dirname(path)
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(json.dumps({{"ok": True}}))
+except Exception as e:
+    print(json.dumps({{"error": str(e)}}))
+    sys.exit(1)
+"""
+        output = await self._exec_python(script)
+
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError as exc:
+            logger.error("write_file JSON parse error: %s", output[:500])
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to write file",
+            ) from exc
+
+        if "error" in data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Write failed: {data['error']}",
+            )
+
     async def generate_unique_name(self, parent_vfs: str, base_name: str) -> str:
         """Papka ichida unikal nom yaratish."""
         _validate_path(parent_vfs)
