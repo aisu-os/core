@@ -356,3 +356,42 @@ async def test_fs_update_desktop_positions(client: AsyncClient, beta_token_store
     )
     assert alpha.status_code == 200
     assert (alpha.json()["desktop_x"], alpha.json()["desktop_y"]) == (120, 240)
+
+
+async def test_fs_write_and_read_file(client: AsyncClient, beta_token_store: dict[str, str]):
+    token = await _register_and_login(client, "fs8@example.com", "fsuser8", beta_token_store)
+
+    content = "Salom, dunyo!"
+    write = await client.post(
+        "/api/v1/fs/write",
+        json={"path": "/Documents/hello.txt", "content": content},
+        headers=_auth_headers(token),
+    )
+    assert write.status_code == 200
+    write_data = write.json()
+    assert write_data["path"] == "/Documents/hello.txt"
+    assert write_data["size"] == len(content.encode("utf-8"))
+
+    read = await client.get(
+        "/api/v1/fs/read",
+        params={"path": "/Documents/hello.txt"},
+        headers=_auth_headers(token),
+    )
+    assert read.status_code == 200
+    read_data = read.json()
+    assert read_data["content"] == content
+    assert read_data["size"] == len(content.encode("utf-8"))
+    assert read_data["encoding"] == "utf-8"
+
+
+async def test_fs_read_missing_file_returns_404(
+    client: AsyncClient, beta_token_store: dict[str, str]
+):
+    token = await _register_and_login(client, "fs9@example.com", "fsuser9", beta_token_store)
+
+    missing = await client.get(
+        "/api/v1/fs/read",
+        params={"path": "/Documents/missing.txt"},
+        headers=_auth_headers(token),
+    )
+    assert missing.status_code == 404

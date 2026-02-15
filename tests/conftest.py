@@ -242,6 +242,41 @@ class _LocalFsService:
                         return results
         return results
 
+    async def read_file(self, vfs_path: str, max_size: int = 2 * 1024 * 1024) -> dict:
+        import os
+
+        from fastapi import HTTPException, status
+
+        container_path = self._vfs_to_container(vfs_path)
+        if not os.path.exists(container_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File not found: {vfs_path}",
+            )
+        if os.path.isdir(container_path):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Path is a directory: {vfs_path}",
+            )
+
+        size = os.path.getsize(container_path)
+        if size > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large: {size} bytes (max {max_size})",
+            )
+
+        try:
+            with open(container_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"Binary file cannot be opened as text: {vfs_path}",
+            )
+
+        return {"content": content, "size": size, "encoding": "utf-8"}
+
     # -- write ops --
 
     async def create_file(self, vfs_path: str) -> None:
@@ -278,6 +313,16 @@ class _LocalFsService:
         else:
             shutil.copy2(source, dest)
         return f"/{name}" if dest_parent_vfs == "/" else f"{dest_parent_vfs}/{name}"
+
+    async def write_file(self, vfs_path: str, content: str) -> None:
+        import os
+
+        container_path = self._vfs_to_container(vfs_path)
+        parent = os.path.dirname(container_path)
+        if parent and not os.path.exists(parent):
+            os.makedirs(parent, exist_ok=True)
+        with open(container_path, "w", encoding="utf-8") as f:
+            f.write(content)
 
     async def delete(self, vfs_path: str) -> None:
         import shutil
