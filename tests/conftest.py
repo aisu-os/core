@@ -9,8 +9,10 @@ from sqlalchemy.ext.compiler import compiles
 from aiso_core.config import settings
 from aiso_core.database import get_db
 from aiso_core.main import app
+from aiso_core.models.beta_access_request import BetaAccessRequest
 from aiso_core.models.file_system_node import FileSystemNode
 from aiso_core.models.user import User
+from aiso_core.services.beta_access_service import BetaAccessService
 from aiso_core.utils.rate_limiter import get_rate_limiter
 
 
@@ -34,6 +36,9 @@ async def db_engine(tmp_path_factory) -> AsyncGenerator:
     )
     async with engine.begin() as conn:
         await conn.run_sync(lambda sync_conn: User.__table__.create(sync_conn, checkfirst=True))
+        await conn.run_sync(
+            lambda sync_conn: BetaAccessRequest.__table__.create(sync_conn, checkfirst=True)
+        )
         await conn.run_sync(
             lambda sync_conn: FileSystemNode.__table__.create(sync_conn, checkfirst=True)
         )
@@ -63,17 +68,33 @@ async def db_session(
 
 
 @pytest.fixture
+def beta_token_store() -> dict[str, str]:
+    return {}
+
+
+@pytest.fixture
 async def client(
     async_session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
+    beta_token_store: dict[str, str],
 ) -> AsyncGenerator[AsyncClient, None]:
     upload_dir = tmp_path / "uploads"
     monkeypatch.setattr(settings, "upload_dir", str(upload_dir))
     monkeypatch.setattr(settings, "app_url", "http://testserver")
     monkeypatch.setattr(settings, "rate_limit_backend", "memory")
     monkeypatch.setattr(settings, "container_enabled", False)
+    monkeypatch.setattr(settings, "beta_access_enabled", True)
     get_rate_limiter.cache_clear()
+
+    async def capture_beta_email(
+        _service: BetaAccessService,
+        recipient_email: str,
+        token: str,
+    ) -> None:
+        beta_token_store[recipient_email] = token
+
+    monkeypatch.setattr(BetaAccessService, "_send_access_email", capture_beta_email)
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with async_session_factory() as session:

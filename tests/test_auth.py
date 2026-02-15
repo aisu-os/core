@@ -1,13 +1,53 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from httpx import AsyncClient
 from sqlalchemy import select
 
 from aiso_core.config import settings
+from aiso_core.models.beta_access_request import BetaAccessRequest
 from aiso_core.models.user import User
 from aiso_core.utils.rate_limiter import get_rate_limiter
 from aiso_core.utils.security import decode_token, hash_password
+
+
+async def _request_beta_token(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+    email: str,
+    extra_text: str = "beta invite request",
+) -> str:
+    response = await client.post(
+        "/api/v1/beta/access-request",
+        data={"email": email, "extra_text": extra_text},
+    )
+    assert response.status_code == 201
+    return beta_token_store[email]
+
+
+async def _register_user(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+    email: str,
+    username: str,
+    display_name: str,
+    password: str,
+    avatar_emoji: str | None = None,
+    files: dict[str, tuple[str, bytes, str]] | None = None,
+):
+    beta_token = await _request_beta_token(client, beta_token_store, email)
+    payload = {
+        "email": email,
+        "username": username,
+        "display_name": display_name,
+        "password": password,
+        "beta_token": beta_token,
+    }
+    if avatar_emoji is not None:
+        payload["avatar_emoji"] = avatar_emoji
+
+    return await client.post("/api/v1/auth/register", data=payload, files=files)
 
 
 async def test_register_requires_body(client: AsyncClient):
@@ -15,15 +55,18 @@ async def test_register_requires_body(client: AsyncClient):
     assert response.status_code == 422
 
 
-async def test_register_success(client: AsyncClient, db_session):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "user@example.com",
-            "username": "user1",
-            "display_name": "User One",
-            "password": "secret123",
-        },
+async def test_register_success(
+    client: AsyncClient,
+    db_session,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="user@example.com",
+        username="user1",
+        display_name="User One",
+        password="secret123",
     )
     assert response.status_code == 201
     data = response.json()
@@ -54,61 +97,183 @@ async def test_register_rejects_invalid_email(client: AsyncClient):
     assert response.json()["detail"] == "Invalid email format"
 
 
-async def test_register_rejects_duplicate_email(client: AsyncClient):
-    payload = {
-        "email": "dupe@example.com",
-        "username": "user3",
-        "display_name": "User Three",
-        "password": "secret123",
-    }
-    first = await client.post("/api/v1/auth/register", data=payload)
+async def test_register_requires_beta_token(client: AsyncClient):
+    response = await client.post(
+        "/api/v1/auth/register",
+        data={
+            "email": "missingtoken@example.com",
+            "username": "missingtoken",
+            "display_name": "Missing Token",
+            "password": "secret123",
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Beta access token is required"
+
+
+async def test_register_rejects_invalid_beta_token(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    await _request_beta_token(client, beta_token_store, "invalidtoken@example.com")
+
+    response = await client.post(
+        "/api/v1/auth/register",
+        data={
+            "email": "invalidtoken@example.com",
+            "username": "badtoken",
+            "display_name": "Bad Token",
+            "password": "secret123",
+            "beta_token": "wrong-token",
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Invalid beta access token"
+
+
+async def test_register_requires_email_token_match(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    token = await _request_beta_token(client, beta_token_store, "first@example.com")
+
+    response = await client.post(
+        "/api/v1/auth/register",
+        data={
+            "email": "second@example.com",
+            "username": "mismatch",
+            "display_name": "Mismatch",
+            "password": "secret123",
+            "beta_token": token,
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Beta access request not found for this email"
+
+
+async def test_register_rejects_used_beta_token(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    token = await _request_beta_token(client, beta_token_store, "used@example.com")
+
+    first = await client.post(
+        "/api/v1/auth/register",
+        data={
+            "email": "used@example.com",
+            "username": "firstused",
+            "display_name": "First Used",
+            "password": "secret123",
+            "beta_token": token,
+        },
+    )
     assert first.status_code == 201
 
     second = await client.post(
         "/api/v1/auth/register",
         data={
-            "email": "dupe@example.com",
-            "username": "user4",
-            "display_name": "User Four",
+            "email": "used@example.com",
+            "username": "secondused",
+            "display_name": "Second Used",
             "password": "secret123",
+            "beta_token": token,
         },
+    )
+    assert second.status_code == 403
+    assert second.json()["detail"] == "Beta access token already used"
+
+
+async def test_register_rejects_expired_beta_token(
+    client: AsyncClient,
+    db_session,
+    beta_token_store: dict[str, str],
+):
+    token = await _request_beta_token(client, beta_token_store, "expired@example.com")
+
+    result = await db_session.execute(
+        select(BetaAccessRequest).where(BetaAccessRequest.email == "expired@example.com")
+    )
+    request = result.scalar_one()
+    request.token_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/auth/register",
+        data={
+            "email": "expired@example.com",
+            "username": "expireduser",
+            "display_name": "Expired User",
+            "password": "secret123",
+            "beta_token": token,
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Beta access token expired"
+
+
+async def test_register_rejects_duplicate_email(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    first = await _register_user(
+        client,
+        beta_token_store,
+        email="dupe@example.com",
+        username="user3",
+        display_name="User Three",
+        password="secret123",
+    )
+    assert first.status_code == 201
+
+    second = await _register_user(
+        client,
+        beta_token_store,
+        email="dupe@example.com",
+        username="user4",
+        display_name="User Four",
+        password="secret123",
     )
     assert second.status_code == 409
     assert second.json()["detail"] == "This email is already registered"
 
 
-async def test_register_rejects_duplicate_username(client: AsyncClient):
-    payload = {
-        "email": "unique@example.com",
-        "username": "dupeuser",
-        "display_name": "User Five",
-        "password": "secret123",
-    }
-    first = await client.post("/api/v1/auth/register", data=payload)
+async def test_register_rejects_duplicate_username(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    first = await _register_user(
+        client,
+        beta_token_store,
+        email="unique@example.com",
+        username="dupeuser",
+        display_name="User Five",
+        password="secret123",
+    )
     assert first.status_code == 201
 
-    second = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "unique2@example.com",
-            "username": "dupeuser",
-            "display_name": "User Six",
-            "password": "secret123",
-        },
+    second = await _register_user(
+        client,
+        beta_token_store,
+        email="unique2@example.com",
+        username="dupeuser",
+        display_name="User Six",
+        password="secret123",
     )
     assert second.status_code == 409
     assert second.json()["detail"] == "This username is already taken"
 
 
-async def test_register_avatar_upload_success(client: AsyncClient):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "avatar@example.com",
-            "username": "avataruser",
-            "display_name": "Avatar User",
-            "password": "secret123",
-        },
+async def test_register_avatar_upload_success(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="avatar@example.com",
+        username="avataruser",
+        display_name="Avatar User",
+        password="secret123",
         files={"avatar": ("avatar.png", b"fakepngdata", "image/png")},
     )
     assert response.status_code == 201
@@ -122,61 +287,69 @@ async def test_register_avatar_upload_success(client: AsyncClient):
     assert any(avatars_dir.iterdir())
 
 
-async def test_register_avatar_emoji_url(client: AsyncClient):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "emoji@example.com",
-            "username": "emojiuser",
-            "display_name": "Emoji User",
-            "password": "secret123",
-            "avatar_emoji": "https://example.com/emoji.png",
-        },
+async def test_register_avatar_emoji_url(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="emoji@example.com",
+        username="emojiuser",
+        display_name="Emoji User",
+        password="secret123",
+        avatar_emoji="https://example.com/emoji.png",
     )
     assert response.status_code == 201
     data = response.json()
     assert data["avatar_url"] == "https://example.com/emoji.png"
 
 
-async def test_register_rejects_non_image_avatar(client: AsyncClient):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "badfile@example.com",
-            "username": "badfileuser",
-            "display_name": "Bad File",
-            "password": "secret123",
-        },
+async def test_register_rejects_non_image_avatar(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="badfile@example.com",
+        username="badfileuser",
+        display_name="Bad File",
+        password="secret123",
         files={"avatar": ("avatar.txt", b"hello", "text/plain")},
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "Only image files are accepted"
 
 
-async def test_register_rejects_avatar_extension(client: AsyncClient):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "badext@example.com",
-            "username": "badextuser",
-            "display_name": "Bad Ext",
-            "password": "secret123",
-        },
+async def test_register_rejects_avatar_extension(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="badext@example.com",
+        username="badextuser",
+        display_name="Bad Ext",
+        password="secret123",
         files={"avatar": ("avatar.txt", b"fakepngdata", "image/png")},
     )
     assert response.status_code == 400
     assert response.json()["detail"].startswith("Allowed formats:")
 
 
-async def test_register_rejects_avatar_too_large(client: AsyncClient):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "large@example.com",
-            "username": "largeuser",
-            "display_name": "Large File",
-            "password": "secret123",
-        },
+async def test_register_rejects_avatar_too_large(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="large@example.com",
+        username="largeuser",
+        display_name="Large File",
+        password="secret123",
         files={"avatar": ("avatar.png", b"a" * (2 * 1024 * 1024 + 1), "image/png")},
     )
     assert response.status_code == 400
@@ -193,15 +366,18 @@ async def test_me_requires_auth(client: AsyncClient):
     assert response.status_code == 401
 
 
-async def test_login_success_returns_token(client: AsyncClient, db_session):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "login@example.com",
-            "username": "loginuser",
-            "display_name": "Login User",
-            "password": "secret123",
-        },
+async def test_login_success_returns_token(
+    client: AsyncClient,
+    db_session,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="login@example.com",
+        username="loginuser",
+        display_name="Login User",
+        password="secret123",
     )
     assert response.status_code == 201
 
@@ -221,15 +397,17 @@ async def test_login_success_returns_token(client: AsyncClient, db_session):
     assert payload["sub"] == str(user.id)
 
 
-async def test_login_rejects_invalid_password(client: AsyncClient):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "wrongpass@example.com",
-            "username": "wrongpassuser",
-            "display_name": "Wrong Pass",
-            "password": "secret123",
-        },
+async def test_login_rejects_invalid_password(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="wrongpass@example.com",
+        username="wrongpassuser",
+        display_name="Wrong Pass",
+        password="secret123",
     )
     assert response.status_code == 201
 
@@ -266,15 +444,17 @@ async def test_login_rejects_inactive_user(client: AsyncClient, db_session):
     assert login.json()["detail"] == "Account is inactive"
 
 
-async def test_me_success_returns_current_user(client: AsyncClient):
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "me@example.com",
-            "username": "meuser",
-            "display_name": "Me User",
-            "password": "secret123",
-        },
+async def test_me_success_returns_current_user(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="me@example.com",
+        username="meuser",
+        display_name="Me User",
+        password="secret123",
     )
     assert response.status_code == 201
 
@@ -295,16 +475,18 @@ async def test_me_success_returns_current_user(client: AsyncClient):
     assert data["display_name"] == "Me User"
 
 
-async def test_get_username_info_success(client: AsyncClient):
+async def test_get_username_info_success(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
     get_rate_limiter.cache_clear()
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "usernameinfo@example.com",
-            "username": "usernameinfo",
-            "display_name": "Username Info",
-            "password": "secret123",
-        },
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="usernameinfo@example.com",
+        username="usernameinfo",
+        display_name="Username Info",
+        password="secret123",
     )
     assert response.status_code == 201
 
@@ -323,16 +505,18 @@ async def test_get_username_info_not_found(client: AsyncClient):
     assert response.json()["detail"] == "User not found"
 
 
-async def test_get_username_info_rate_limit(client: AsyncClient):
+async def test_get_username_info_rate_limit(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
     get_rate_limiter.cache_clear()
-    response = await client.post(
-        "/api/v1/auth/register",
-        data={
-            "email": "ratelimit@example.com",
-            "username": "ratelimit",
-            "display_name": "Rate Limit",
-            "password": "secret123",
-        },
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="ratelimit@example.com",
+        username="ratelimit",
+        display_name="Rate Limit",
+        password="secret123",
     )
     assert response.status_code == 201
 

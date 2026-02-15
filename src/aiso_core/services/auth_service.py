@@ -14,6 +14,7 @@ from aiso_core.schemas.user import (
     UserLogin,
     UsernameInfoResponse,
 )
+from aiso_core.services.beta_access_service import BetaAccessService
 from aiso_core.utils.file_upload import save_avatar
 from aiso_core.utils.helpers import with_full_url
 from aiso_core.utils.security import create_access_token, hash_password, verify_password
@@ -31,26 +32,42 @@ class AuthService:
     def _resolve_wallpaper(self, wallpaper: str | None) -> str:
         return wallpaper or self._default_wallpaper
 
+    @staticmethod
+    def _normalize_email(email: str) -> str:
+        try:
+            normalized = str(_email_adapter.validate_python(email))
+        except Exception as err:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Invalid email format",
+            ) from err
+        return normalized.strip().lower()
+
     async def register(
         self,
         email: str,
         username: str,
         display_name: str,
         password: str,
+        beta_token: str | None = None,
         avatar: UploadFile | None = None,
         avatar_emoji: str | None = None,
     ) -> RegisterResponse:
-        # Email formatini tekshirish
-        try:
-            _email_adapter.validate_python(email)
-        except Exception as err:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Invalid email format",
-            ) from err
+        normalized_email = self._normalize_email(email)
+        beta_request = None
+        beta_service: BetaAccessService | None = None
+
+        # NOTE(beta): Bu vaqtinchalik early-access gate.
+        # Public signup ochilganda token tekshiruv olib tashlanadi.
+        if settings.beta_access_enabled:
+            beta_service = BetaAccessService(self.db)
+            beta_request = await beta_service.get_valid_request_or_raise(
+                email=normalized_email,
+                token=beta_token,
+            )
 
         # Email mavjudligini tekshirish
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email == normalized_email)
         result = await self.db.execute(stmt)
         if result.scalar_one_or_none() is not None:
             raise HTTPException(
@@ -78,7 +95,7 @@ class AuthService:
 
         user = User(
             id=user_id,
-            email=email,
+            email=normalized_email,
             username=username,
             display_name=display_name,
             hashed_password=hash_password(password),
@@ -91,12 +108,8 @@ class AuthService:
         await self.db.flush()
         await self.db.refresh(user)
 
-        # Fayl tizimi seeding
-        from aiso_core.services.file_system_service import seed_user_file_system
-
-        await seed_user_file_system(self.db, user.id)
-
         # Container provisioning (sinxron — user kutadi)
+        # Container yaratilganda _create_user_dirs() papkalarni yaratadi
         container_status = "disabled"
         if settings.container_enabled:
             from aiso_core.services.container_service import ContainerService
@@ -106,6 +119,9 @@ class AuthService:
                 user_id, cpu=user.cpu, disk_mb=user.disk
             )
             container_status = container.status
+
+        if settings.beta_access_enabled and beta_request is not None and beta_service is not None:
+            await beta_service.mark_token_used(beta_request)
 
         return RegisterResponse(
             username=user.username,
@@ -130,6 +146,15 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Account is inactive",
+            )
+
+        # Container mavjudligini tekshirish va ishga tushirish
+        if settings.container_enabled:
+            from aiso_core.services.container_service import ContainerService
+
+            container_service = ContainerService(self.db)
+            await container_service.start_container(
+                user_id=user.id, cpu=user.cpu, disk_mb=user.disk,
             )
 
         access_token = create_access_token(data={"sub": str(user.id)})

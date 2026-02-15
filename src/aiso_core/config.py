@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
+    beta_access_enabled: bool = True
+    beta_register_url: str = "http://localhost:5174/register"
+    beta_token_expire_hours: int = 72
+
+    # SMTP (beta invite email)
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str = "no-reply@aisu.local"
+    smtp_use_tls: bool = True
 
     # CORS
     cors_origins: list[str] = ["http://localhost:5174", "http://localhost:4173"]

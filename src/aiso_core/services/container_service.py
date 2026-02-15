@@ -41,7 +41,7 @@ def _get_user_data_path(user_id: uuid.UUID) -> str:
 def _create_user_dirs(user_id: uuid.UUID) -> str:
     """Foydalanuvchi direktoriyalarini yaratadi."""
     base = _get_user_data_path(user_id)
-    subdirs = ["documents", "projects", "downloads", "pictures", ".aisu", ".trash"]
+    subdirs = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos", ".Trash"]
     for subdir in subdirs:
         os.makedirs(os.path.join(base, subdir), exist_ok=True)
     return base
@@ -73,10 +73,12 @@ def _create_container_sync(
             "image": settings.container_image,
             "name": container_name,
             "detach": True,
+            "stdin_open": True,
+            "tty": True,
             "hostname": f"aisu-{str(user_id)[:8]}",
             "network": settings.container_network,
             "volumes": {
-                user_data_path: {"bind": "/home/aisu/data", "mode": "rw"},
+                user_data_path: {"bind": "/home/aisu", "mode": "rw"},
             },
             "cpu_quota": cpu_quota,
             "cpu_period": settings.container_cpu_period,
@@ -199,41 +201,112 @@ class ContainerService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def _reprovision_container(
+        self,
+        container_record: UserContainer,
+        user_id: uuid.UUID,
+        cpu: int,
+        disk_mb: int,
+    ) -> UserContainer:
+        """Mavjud DB recordni saqlab, Docker containerni qaytadan yaratish.
+
+        provision_container() dan farqi: yangi UserContainer yaratmaydi,
+        mavjud recordni yangilaydi (duplicate key xatosini oldini oladi).
+        """
+        ram_per_cpu = _parse_mem_str(settings.container_ram_per_cpu)
+        ram_bytes = cpu * ram_per_cpu
+        disk_bytes = disk_mb * 1024 * 1024
+
+        await asyncio.to_thread(_create_user_dirs, user_id)
+
+        container_record.status = "creating"
+        container_record.cpu_limit = cpu
+        container_record.ram_limit = ram_bytes
+        container_record.disk_limit = disk_bytes
+        container_record.network_rate = settings.container_network_rate
+        await self.db.flush()
+
+        await self._log_event(user_id, "re-creating", {"cpu": cpu, "disk_mb": disk_mb})
+
+        result = await asyncio.to_thread(_create_container_sync, user_id, cpu, disk_mb, ram_bytes)
+
+        container_record.container_id = result["container_id"]
+        container_record.container_name = result["container_name"]
+        container_record.container_ip = result["container_ip"]
+        container_record.status = result["status"]
+        if result["status"] == "running":
+            container_record.started_at = datetime.now(UTC)
+
+        await self.db.flush()
+
+        event_type = "created" if result["status"] == "running" else "error"
+        await self._log_event(user_id, event_type, result)
+
+        return container_record
+
     async def start_container(self, user_id: uuid.UUID, cpu: int, disk_mb: int) -> dict[str, str]:
-        """To'xtatilgan containerni ishga tushirish."""
+        """Containerni ishga tushirish.
+
+        - DB da record yo'q → yangi provision
+        - Docker da container bor va running → darhol qaytarish
+        - Docker da container bor lekin to'xtagan → start qilish
+        - Docker da container yo'q (o'chirilgan) → re-provision (DB recordni yangilash)
+        """
         container_record = await self.get_container(user_id)
         if container_record is None:
             container_record = await self.provision_container(user_id, cpu, disk_mb)
             return {"status": container_record.status, "message": "Container provisioned"}
 
-        if container_record.status == "running":
-            return {"status": "running", "message": "Container already running"}
-
+        # Docker da haqiqiy holatni tekshirish
         try:
-            client = _get_docker_client()
-            try:
-                docker_container = client.containers.get(container_record.container_name)
-                docker_container.start()
-                docker_container.reload()
+            docker_container = await asyncio.to_thread(
+                _get_docker_client().containers.get,
+                container_record.container_name,
+            )
+            docker_status = docker_container.status
+        except Exception:
+            docker_container = None
+            docker_status = None
 
+        # Docker da container yo'q — qaytadan yaratish
+        if docker_container is None:
+            logger.warning(
+                "Container not found in Docker, re-provisioning: user_id=%s",
+                user_id,
+            )
+            container_record = await self._reprovision_container(
+                container_record,
+                user_id,
+                cpu,
+                disk_mb,
+            )
+            return {"status": container_record.status, "message": "Container re-provisioned"}
+
+        # Docker da running — DB ni sinxronlash va qaytarish
+        if docker_status == "running":
+            if container_record.status != "running":
                 container_record.status = "running"
                 container_record.started_at = datetime.now(UTC)
-
-                networks = docker_container.attrs.get("NetworkSettings", {}).get("Networks", {})
-                if settings.container_network in networks:
-                    container_record.container_ip = networks[settings.container_network].get(
-                        "IPAddress"
-                    )
-
                 await self.db.flush()
-                await self._log_event(user_id, "started")
-                return {"status": "running", "message": "Container started"}
-            except Exception:
-                logger.warning(
-                    "Container not found in Docker, re-provisioning: user_id=%s", user_id
+            return {"status": "running", "message": "Container already running"}
+
+        # Docker da bor lekin to'xtagan — start qilish
+        try:
+            await asyncio.to_thread(docker_container.start)
+            await asyncio.to_thread(docker_container.reload)
+
+            container_record.status = "running"
+            container_record.started_at = datetime.now(UTC)
+
+            networks = docker_container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            if settings.container_network in networks:
+                container_record.container_ip = networks[settings.container_network].get(
+                    "IPAddress"
                 )
-                container_record = await self.provision_container(user_id, cpu, disk_mb)
-                return {"status": container_record.status, "message": "Container re-provisioned"}
+
+            await self.db.flush()
+            await self._log_event(user_id, "started")
+            return {"status": "running", "message": "Container started"}
         except Exception:
             logger.exception("Container start xatolik: user_id=%s", user_id)
             return {"status": "error", "message": "Failed to start container"}

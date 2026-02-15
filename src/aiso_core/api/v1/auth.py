@@ -22,6 +22,7 @@ async def register(
     username: str = Form(...),
     display_name: str = Form(...),
     password: str = Form(...),
+    beta_token: str | None = Form(None),
     avatar: UploadFile | None = File(None),
     avatar_emoji: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
@@ -32,6 +33,7 @@ async def register(
         username=username,
         display_name=display_name,
         password=password,
+        beta_token=beta_token,
         avatar=avatar,
         avatar_emoji=avatar_emoji,
     )

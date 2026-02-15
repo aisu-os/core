@@ -5,6 +5,7 @@ from aiso_core.models.app_review import AppReview
 from aiso_core.models.app_screenshot import AppScreenshot
 from aiso_core.models.app_version import AppVersion
 from aiso_core.models.base import Base
+from aiso_core.models.beta_access_request import BetaAccessRequest
 from aiso_core.models.container_event import ContainerEvent
 from aiso_core.models.file_system_node import FileSystemNode
 from aiso_core.models.user import User
@@ -13,6 +14,7 @@ from aiso_core.models.user_container import UserContainer
 __all__ = [
     "Base",
     "User",
+    "BetaAccessRequest",
     "UserContainer",
     "ContainerEvent",
     "App",

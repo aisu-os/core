@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from aiso_core.api.router import api_router
+from aiso_core.api.v1.terminal import router as terminal_ws_router
 from aiso_core.config import settings
 
 
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.mount("/uploads", StaticFiles(directory=upload_path), name="uploads")
 
     app.include_router(api_router, prefix="/api")
+    app.include_router(terminal_ws_router, prefix="/ws")
 
     return app
 
