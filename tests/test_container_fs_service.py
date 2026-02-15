@@ -17,7 +17,6 @@ from aiso_core.services.container_fs_service import ContainerFsService, _validat
 
 
 class TestValidatePath:
-
     def test_normal_path(self) -> None:
         _validate_path("/Documents/test.txt")
 
@@ -47,7 +46,6 @@ class TestValidatePath:
 
 
 class TestPathConversion:
-
     def test_vfs_to_container_root(self) -> None:
         svc = ContainerFsService("test_container", "/home/aisu")
         assert svc._vfs_to_container("/") == "/home/aisu"

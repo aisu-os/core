@@ -26,7 +26,6 @@ from aiso_core.services.container_service import (
 
 
 class TestParseMemStr:
-
     def test_gigabytes(self) -> None:
         assert _parse_mem_str("1g") == 1024**3
 
@@ -50,7 +49,6 @@ class TestParseMemStr:
 
 
 class TestGetUserDataPath:
-
     def test_returns_absolute_path(self) -> None:
         uid = uuid.uuid4()
         path = _get_user_data_path(uid)
@@ -64,13 +62,20 @@ class TestGetUserDataPath:
 
 
 class TestCreateUserDirs:
-
     def test_creates_all_subdirs(self, tmp_path) -> None:
         uid = uuid.uuid4()
         with patch.object(settings, "user_data_base_path", str(tmp_path)):
             base = _create_user_dirs(uid)
 
-        expected_dirs = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos", ".Trash"]
+        expected_dirs = [
+            "Desktop",
+            "Documents",
+            "Downloads",
+            "Pictures",
+            "Music",
+            "Videos",
+            ".Trash",
+        ]
         for d in expected_dirs:
             assert (tmp_path / str(uid) / d).is_dir()
         assert str(uid) in base
@@ -83,15 +88,12 @@ class TestCreateUserDirs:
 
 
 class TestCreateContainerSync:
-
     def test_success_returns_running(self) -> None:
         mock_container = MagicMock()
         mock_container.id = "abc123"
         mock_container.attrs = {
             "NetworkSettings": {
-                "Networks": {
-                    settings.container_network: {"IPAddress": "172.18.0.5"}
-                }
+                "Networks": {settings.container_network: {"IPAddress": "172.18.0.5"}}
             }
         }
 
@@ -99,12 +101,15 @@ class TestCreateContainerSync:
         mock_client.containers.run.return_value = mock_container
 
         uid = uuid.uuid4()
-        with patch(
-            "aiso_core.services.container_service._get_docker_client",
-            return_value=mock_client,
-        ), patch(
-            "aiso_core.services.container_service._get_user_data_path",
-            return_value="/data/users/" + str(uid),
+        with (
+            patch(
+                "aiso_core.services.container_service._get_docker_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "aiso_core.services.container_service._get_user_data_path",
+                return_value="/data/users/" + str(uid),
+            ),
         ):
             result = _create_container_sync(uid, cpu=2, disk_mb=5120, ram_bytes=2 * 1024**3)
 
@@ -118,12 +123,15 @@ class TestCreateContainerSync:
         mock_client.containers.run.side_effect = RuntimeError("Docker daemon not found")
 
         uid = uuid.uuid4()
-        with patch(
-            "aiso_core.services.container_service._get_docker_client",
-            return_value=mock_client,
-        ), patch(
-            "aiso_core.services.container_service._get_user_data_path",
-            return_value="/data/users/" + str(uid),
+        with (
+            patch(
+                "aiso_core.services.container_service._get_docker_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "aiso_core.services.container_service._get_user_data_path",
+                return_value="/data/users/" + str(uid),
+            ),
         ):
             result = _create_container_sync(uid, cpu=2, disk_mb=5120, ram_bytes=2 * 1024**3)
 
@@ -140,12 +148,15 @@ class TestCreateContainerSync:
         mock_client.containers.run.return_value = mock_container
 
         uid = uuid.uuid4()
-        with patch(
-            "aiso_core.services.container_service._get_docker_client",
-            return_value=mock_client,
-        ), patch(
-            "aiso_core.services.container_service._get_user_data_path",
-            return_value="/data/users/" + str(uid),
+        with (
+            patch(
+                "aiso_core.services.container_service._get_docker_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "aiso_core.services.container_service._get_user_data_path",
+                return_value="/data/users/" + str(uid),
+            ),
         ):
             result = _create_container_sync(uid, cpu=2, disk_mb=5120, ram_bytes=2 * 1024**3)
 
@@ -157,7 +168,6 @@ class TestCreateContainerSync:
 
 
 class TestContainerService:
-
     @pytest.fixture
     async def user(self, db_session: AsyncSession) -> User:
         user = User(
@@ -177,14 +187,19 @@ class TestContainerService:
         return user
 
     async def test_get_container_returns_none_when_not_exists(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         service = ContainerService(db_session)
         result = await service.get_container(user.id)
         assert result is None
 
     async def test_provision_container_creates_record(
-        self, db_session: AsyncSession, user: User, tmp_path,
+        self,
+        db_session: AsyncSession,
+        user: User,
+        tmp_path,
     ) -> None:
         mock_result = {
             "container_id": "docker_abc",
@@ -193,11 +208,13 @@ class TestContainerService:
             "status": "running",
         }
 
-        with patch.object(settings, "user_data_base_path", str(tmp_path)), \
-             patch(
-                 "aiso_core.services.container_service._create_container_sync",
-                 return_value=mock_result,
-             ):
+        with (
+            patch.object(settings, "user_data_base_path", str(tmp_path)),
+            patch(
+                "aiso_core.services.container_service._create_container_sync",
+                return_value=mock_result,
+            ),
+        ):
             service = ContainerService(db_session)
             record = await service.provision_container(user.id, cpu=2, disk_mb=5120)
             await db_session.commit()
@@ -209,7 +226,10 @@ class TestContainerService:
         assert record.started_at is not None
 
     async def test_provision_container_error_status(
-        self, db_session: AsyncSession, user: User, tmp_path,
+        self,
+        db_session: AsyncSession,
+        user: User,
+        tmp_path,
     ) -> None:
         mock_result = {
             "container_id": None,
@@ -218,11 +238,13 @@ class TestContainerService:
             "status": "error",
         }
 
-        with patch.object(settings, "user_data_base_path", str(tmp_path)), \
-             patch(
-                 "aiso_core.services.container_service._create_container_sync",
-                 return_value=mock_result,
-             ):
+        with (
+            patch.object(settings, "user_data_base_path", str(tmp_path)),
+            patch(
+                "aiso_core.services.container_service._create_container_sync",
+                return_value=mock_result,
+            ),
+        ):
             service = ContainerService(db_session)
             record = await service.provision_container(user.id, cpu=2, disk_mb=5120)
             await db_session.commit()
@@ -232,7 +254,9 @@ class TestContainerService:
         assert record.started_at is None
 
     async def test_get_container_returns_existing(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -253,7 +277,10 @@ class TestContainerService:
         assert result.container_id == "docker_123"
 
     async def test_start_container_provisions_when_no_record(
-        self, db_session: AsyncSession, user: User, tmp_path,
+        self,
+        db_session: AsyncSession,
+        user: User,
+        tmp_path,
     ) -> None:
         mock_result = {
             "container_id": "docker_new",
@@ -262,11 +289,13 @@ class TestContainerService:
             "status": "running",
         }
 
-        with patch.object(settings, "user_data_base_path", str(tmp_path)), \
-             patch(
-                 "aiso_core.services.container_service._create_container_sync",
-                 return_value=mock_result,
-             ):
+        with (
+            patch.object(settings, "user_data_base_path", str(tmp_path)),
+            patch(
+                "aiso_core.services.container_service._create_container_sync",
+                return_value=mock_result,
+            ),
+        ):
             service = ContainerService(db_session)
             result = await service.start_container(user.id, cpu=2, disk_mb=5120)
             await db_session.commit()
@@ -275,7 +304,9 @@ class TestContainerService:
         assert result["message"] == "Container provisioned"
 
     async def test_start_container_already_running(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -306,7 +337,9 @@ class TestContainerService:
         assert result["message"] == "Container already running"
 
     async def test_start_container_stopped_starts_it(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -325,9 +358,7 @@ class TestContainerService:
         mock_docker_container.status = "exited"
         mock_docker_container.attrs = {
             "NetworkSettings": {
-                "Networks": {
-                    settings.container_network: {"IPAddress": "172.18.0.6"}
-                }
+                "Networks": {settings.container_network: {"IPAddress": "172.18.0.6"}}
             }
         }
         mock_client = MagicMock()
@@ -346,7 +377,10 @@ class TestContainerService:
         mock_docker_container.start.assert_called_once()
 
     async def test_start_container_docker_not_found_reprovisions(
-        self, db_session: AsyncSession, user: User, tmp_path,
+        self,
+        db_session: AsyncSession,
+        user: User,
+        tmp_path,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -371,14 +405,17 @@ class TestContainerService:
             "status": "running",
         }
 
-        with patch(
-            "aiso_core.services.container_service._get_docker_client",
-            return_value=mock_client,
-        ), patch.object(settings, "user_data_base_path", str(tmp_path)), \
-             patch(
-                 "aiso_core.services.container_service._create_container_sync",
-                 return_value=mock_result,
-             ):
+        with (
+            patch(
+                "aiso_core.services.container_service._get_docker_client",
+                return_value=mock_client,
+            ),
+            patch.object(settings, "user_data_base_path", str(tmp_path)),
+            patch(
+                "aiso_core.services.container_service._create_container_sync",
+                return_value=mock_result,
+            ),
+        ):
             service = ContainerService(db_session)
             result = await service.start_container(user.id, cpu=2, disk_mb=5120)
             await db_session.commit()
@@ -387,7 +424,9 @@ class TestContainerService:
         assert result["message"] == "Container re-provisioned"
 
     async def test_stop_container_no_record(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         service = ContainerService(db_session)
         result = await service.stop_container(user.id)
@@ -395,7 +434,9 @@ class TestContainerService:
         assert result["message"] == "Container not found"
 
     async def test_stop_container_already_stopped(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -416,7 +457,9 @@ class TestContainerService:
         assert result["message"] == "Container already stopped"
 
     async def test_stop_container_success(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -448,7 +491,9 @@ class TestContainerService:
         mock_docker_container.stop.assert_called_once_with(timeout=10)
 
     async def test_stop_container_docker_error(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -477,14 +522,18 @@ class TestContainerService:
         assert result["status"] == "error"
 
     async def test_get_container_status_live_no_record(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         service = ContainerService(db_session)
         result = await service.get_container_status_live(user.id)
         assert result is None
 
     async def test_get_container_status_live_no_container_id(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -506,7 +555,9 @@ class TestContainerService:
         assert result["docker_status"] == "unknown"
 
     async def test_get_container_status_live_success(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -538,7 +589,9 @@ class TestContainerService:
         assert result["docker_status"] == "running"
 
     async def test_get_container_status_live_docker_unreachable(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         container = UserContainer(
             user_id=user.id,
@@ -567,7 +620,9 @@ class TestContainerService:
         assert result["docker_status"] == "unreachable"
 
     async def test_get_container_status_live_syncs_status(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         """Docker da status o'zgargan bo'lsa, DB ni yangilaydi."""
         container = UserContainer(
@@ -600,7 +655,9 @@ class TestContainerService:
         assert result["docker_status"] == "exited"
 
     async def test_start_container_syncs_running_status(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         """DB da stopped, Docker da running — DB sinxronlanishi kerak."""
         container = UserContainer(
@@ -633,7 +690,9 @@ class TestContainerService:
         assert result["message"] == "Container already running"
 
     async def test_start_container_start_fails(
-        self, db_session: AsyncSession, user: User,
+        self,
+        db_session: AsyncSession,
+        user: User,
     ) -> None:
         """Docker da container bor lekin start qilishda xatolik."""
         container = UserContainer(

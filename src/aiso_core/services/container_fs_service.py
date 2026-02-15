@@ -577,6 +577,7 @@ except UnicodeDecodeError:
 
         # Base64 orqali xavfsiz uzatish (matnda maxsus belgilar bo'lishi mumkin)
         import base64
+
         encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
 
         script = f"""

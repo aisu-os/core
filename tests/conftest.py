@@ -99,7 +99,7 @@ class _LocalFsService:
         if container_path == self.base_path or container_path == self.base_path + "/":
             return "/"
         if container_path.startswith(self.base_path + "/"):
-            return container_path[len(self.base_path):]
+            return container_path[len(self.base_path) :]
         return container_path
 
     # -- read ops --
@@ -156,6 +156,7 @@ class _LocalFsService:
         container_path = self._vfs_to_container(vfs_path)
         if not os.path.isdir(container_path):
             from fastapi import HTTPException, status
+
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Directory not found: {vfs_path}",
@@ -169,15 +170,17 @@ class _LocalFsService:
                 continue
             mime, _ = mimetypes.guess_type(entry.name)
             is_dir = entry.is_dir(follow_symlinks=False)
-            result.append({
-                "name": entry.name,
-                "path": entry.path,
-                "type": "directory" if is_dir else "file",
-                "size": 0 if is_dir else st.st_size,
-                "mime_type": mime,
-                "mtime": st.st_mtime,
-                "ctime": st.st_ctime,
-            })
+            result.append(
+                {
+                    "name": entry.name,
+                    "path": entry.path,
+                    "type": "directory" if is_dir else "file",
+                    "size": 0 if is_dir else st.st_size,
+                    "mime_type": mime,
+                    "mtime": st.st_mtime,
+                    "ctime": st.st_ctime,
+                }
+            )
         return result
 
     async def stat_path(self, vfs_path: str) -> dict | None:
@@ -204,6 +207,7 @@ class _LocalFsService:
 
     async def exists(self, vfs_path: str) -> bool:
         import os
+
         return os.path.exists(self._vfs_to_container(vfs_path))
 
     async def search(self, query: str, scope_vfs: str = "/") -> list[dict]:
@@ -223,15 +227,17 @@ class _LocalFsService:
                         continue
                     is_dir = os.path.isdir(full)
                     mime, _ = mimetypes.guess_type(name)
-                    results.append({
-                        "name": name,
-                        "path": full,
-                        "type": "directory" if is_dir else "file",
-                        "size": 0 if is_dir else st.st_size,
-                        "mime_type": mime,
-                        "mtime": st.st_mtime,
-                        "ctime": st.st_ctime,
-                    })
+                    results.append(
+                        {
+                            "name": name,
+                            "path": full,
+                            "type": "directory" if is_dir else "file",
+                            "size": 0 if is_dir else st.st_size,
+                            "mime_type": mime,
+                            "mtime": st.st_mtime,
+                            "ctime": st.st_ctime,
+                        }
+                    )
                     if len(results) >= 50:
                         return results
         return results
@@ -248,10 +254,12 @@ class _LocalFsService:
 
     async def rename(self, old_vfs: str, new_vfs: str) -> None:
         import os
+
         os.rename(self._vfs_to_container(old_vfs), self._vfs_to_container(new_vfs))
 
     async def move(self, source_vfs: str, dest_parent_vfs: str) -> str:
         import shutil
+
         source = self._vfs_to_container(source_vfs)
         dest_dir = self._vfs_to_container(dest_parent_vfs)
         name = source_vfs.rsplit("/", 1)[-1]
@@ -260,6 +268,7 @@ class _LocalFsService:
 
     async def copy(self, source_vfs: str, dest_parent_vfs: str) -> str:
         import shutil
+
         source = self._vfs_to_container(source_vfs)
         dest_dir = self._vfs_to_container(dest_parent_vfs)
         name = source_vfs.rsplit("/", 1)[-1]
@@ -272,6 +281,7 @@ class _LocalFsService:
 
     async def delete(self, vfs_path: str) -> None:
         import shutil
+
         p = Path(self._vfs_to_container(vfs_path))
         if p.is_dir():
             shutil.rmtree(p)
@@ -289,6 +299,7 @@ class _LocalFsService:
             trash_vfs = f"/.Trash/{name}"
         await self.create_directory("/.Trash")
         import os
+
         os.rename(
             self._vfs_to_container(vfs_path),
             self._vfs_to_container(trash_vfs),
@@ -297,6 +308,7 @@ class _LocalFsService:
 
     async def empty_trash(self) -> int:
         import shutil
+
         items = await self.list_directory("/.Trash")
         count = len(items)
         if count > 0:
@@ -311,6 +323,7 @@ class _LocalFsService:
     async def _exec_cmd(self, cmd: list[str]) -> tuple[str, int]:
         """Lokal subprocess orqali buyruq bajarish."""
         import subprocess
+
         result = subprocess.run(cmd, capture_output=True, text=True)
         return result.stdout, result.returncode
 

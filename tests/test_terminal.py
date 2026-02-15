@@ -54,11 +54,13 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
 
     # exec_create har safar yangi ID qaytaradi
     # 3 ta exec: screenrc yaratish + screen create + screen attach
-    exec_ids = iter([
-        "exec_screenrc_setup",
-        "exec_screen_create_123",
-        "exec_screen_attach_456",
-    ])
+    exec_ids = iter(
+        [
+            "exec_screenrc_setup",
+            "exec_screen_create_123",
+            "exec_screen_attach_456",
+        ]
+    )
     client.api.exec_create.side_effect = lambda *a, **kw: {"Id": next(exec_ids)}
 
     # exec_start natijalari:
@@ -87,9 +89,10 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
 
 
 class TestTerminalSession:
-
     async def test_start_creates_screen_and_attaches(
-        self, mock_docker_client: MagicMock, mock_socket: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
+        mock_socket: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -124,7 +127,8 @@ class TestTerminalSession:
             assert "-r" in third_cmd
 
     async def test_read_returns_data(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -137,7 +141,9 @@ class TestTerminalSession:
             assert data == b"aisu@aisu:~$ "
 
     async def test_write_sends_data(
-        self, mock_docker_client: MagicMock, mock_socket: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
+        mock_socket: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -150,7 +156,9 @@ class TestTerminalSession:
             mock_socket.sendall.assert_called_once_with(b"ls\n")
 
     async def test_write_after_close_is_noop(
-        self, mock_docker_client: MagicMock, mock_socket: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
+        mock_socket: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -164,7 +172,8 @@ class TestTerminalSession:
             mock_socket.sendall.assert_not_called()
 
     async def test_read_after_close_returns_empty(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -178,7 +187,8 @@ class TestTerminalSession:
             assert data == b""
 
     async def test_close_is_idempotent(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -191,7 +201,8 @@ class TestTerminalSession:
             assert session.is_closed
 
     async def test_resize_calls_docker_api(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -202,11 +213,14 @@ class TestTerminalSession:
 
             await session.resize(40, 120)
             mock_docker_client.api.exec_resize.assert_called_once_with(
-                "exec_screen_attach_456", height=40, width=120,
+                "exec_screen_attach_456",
+                height=40,
+                width=120,
             )
 
     async def test_read_oserror_when_closed_returns_empty(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         bad_socket = MagicMock(spec=socket.socket)
         bad_socket.recv.side_effect = OSError("Connection reset")
@@ -216,7 +230,9 @@ class TestTerminalSession:
         socket_wrapper._sock = bad_socket
         mock_docker_client.api.exec_start.side_effect = [b"", b"", socket_wrapper]
         mock_docker_client.api.exec_create.side_effect = [
-            {"Id": "e1"}, {"Id": "e2"}, {"Id": "e3"},
+            {"Id": "e1"},
+            {"Id": "e2"},
+            {"Id": "e3"},
         ]
 
         with patch(
@@ -231,7 +247,8 @@ class TestTerminalSession:
             assert data == b""
 
     async def test_read_oserror_when_open_raises(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         bad_socket = MagicMock(spec=socket.socket)
         bad_socket.recv.side_effect = OSError("Connection reset")
@@ -241,7 +258,9 @@ class TestTerminalSession:
         socket_wrapper._sock = bad_socket
         mock_docker_client.api.exec_start.side_effect = [b"", b"", socket_wrapper]
         mock_docker_client.api.exec_create.side_effect = [
-            {"Id": "e1"}, {"Id": "e2"}, {"Id": "e3"},
+            {"Id": "e1"},
+            {"Id": "e2"},
+            {"Id": "e3"},
         ]
 
         with patch(
@@ -265,13 +284,15 @@ class TestTerminalSession:
         assert s._screen_session == "term_my-id"
 
     async def test_screen_session_failed_raises(
-        self, mock_docker_client: MagicMock,
+        self,
+        mock_docker_client: MagicMock,
     ) -> None:
         """screen yaratilmasa RuntimeError ko'tarilishi kerak."""
         mock_docker_client.api.exec_inspect.return_value = {"ExitCode": 1}
         # screenrc yaratish muvaffaqiyatli, lekin screen create muvaffaqiyatsiz
         mock_docker_client.api.exec_create.side_effect = [
-            {"Id": "e_screenrc"}, {"Id": "e1"},
+            {"Id": "e_screenrc"},
+            {"Id": "e1"},
         ]
         mock_docker_client.api.exec_start.side_effect = [b"", b"no screen running"]
 
@@ -285,7 +306,6 @@ class TestTerminalSession:
 
 
 class TestExtractSocket:
-
     def test_extracts_from_sock_attribute(self) -> None:
         raw = MagicMock(spec=socket.socket)
         wrapper = MagicMock()
@@ -323,7 +343,8 @@ class TestTerminalWebSocket:
 
     @pytest.fixture
     async def user_and_token(
-        self, db_session: AsyncSession,
+        self,
+        db_session: AsyncSession,
     ) -> tuple[User, str]:
         user = User(
             id=uuid.uuid4(),
@@ -467,7 +488,9 @@ class TestTerminalWebSocket:
         """To'liq sessiya: connect → ready → input → output → disconnect."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
-            async_session_factory, mock_terminal_session, monkeypatch,
+            async_session_factory,
+            mock_terminal_session,
+            monkeypatch,
         )
 
         from starlette.testclient import TestClient
@@ -503,7 +526,9 @@ class TestTerminalWebSocket:
         """Sessiya idle davrda ham uzilmasligi kerak."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
-            async_session_factory, mock_terminal_session, monkeypatch,
+            async_session_factory,
+            mock_terminal_session,
+            monkeypatch,
         )
 
         from starlette.testclient import TestClient
@@ -530,7 +555,9 @@ class TestTerminalWebSocket:
         """Enter bosilganda buyruq natijasi qaytishi kerak."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
-            async_session_factory, mock_terminal_session, monkeypatch,
+            async_session_factory,
+            mock_terminal_session,
+            monkeypatch,
         )
 
         from starlette.testclient import TestClient
@@ -558,7 +585,9 @@ class TestTerminalWebSocket:
         """Tez ketma-ket input da ham barcha data kelishi kerak."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
-            async_session_factory, mock_terminal_session, monkeypatch,
+            async_session_factory,
+            mock_terminal_session,
+            monkeypatch,
         )
 
         from starlette.testclient import TestClient
