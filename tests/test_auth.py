@@ -444,6 +444,36 @@ async def test_login_rejects_inactive_user(client: AsyncClient, db_session):
     assert login.json()["detail"] == "Account is inactive"
 
 
+async def test_login_rate_limit(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    get_rate_limiter.cache_clear()
+    response = await _register_user(
+        client,
+        beta_token_store,
+        email="loginlimit@example.com",
+        username="loginlimit",
+        display_name="Login Limit",
+        password="secret123",
+    )
+    assert response.status_code == 201
+
+    for _ in range(settings.rate_limit_auth_per_minute):
+        ok = await client.post(
+            "/api/v1/auth/login",
+            json={"username": "loginlimit", "password": "secret123"},
+        )
+        assert ok.status_code == 200
+
+    limited = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "loginlimit", "password": "secret123"},
+    )
+    assert limited.status_code == 429
+    assert limited.json()["detail"] == "Rate limit exceeded"
+
+
 async def test_me_success_returns_current_user(
     client: AsyncClient,
     beta_token_store: dict[str, str],
@@ -525,5 +555,33 @@ async def test_get_username_info_rate_limit(
         assert ok.status_code == 200
 
     limited = await client.get("/api/v1/auth/username-info", params={"username": "ratelimit"})
+    assert limited.status_code == 429
+    assert limited.json()["detail"] == "Rate limit exceeded"
+
+
+async def test_register_rate_limit(
+    client: AsyncClient,
+    beta_token_store: dict[str, str],
+):
+    get_rate_limiter.cache_clear()
+    for index in range(settings.rate_limit_auth_per_minute):
+        response = await _register_user(
+            client,
+            beta_token_store,
+            email=f"reglimit{index}@example.com",
+            username=f"reglimit{index}",
+            display_name=f"Reg Limit {index}",
+            password="secret123",
+        )
+        assert response.status_code == 201
+
+    limited = await _register_user(
+        client,
+        beta_token_store,
+        email="reglimit-final@example.com",
+        username="reglimit-final",
+        display_name="Reg Limit Final",
+        password="secret123",
+    )
     assert limited.status_code == 429
     assert limited.json()["detail"] == "Rate limit exceeded"

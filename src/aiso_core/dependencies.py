@@ -109,3 +109,10 @@ def rate_limit_username_info() -> Callable[[Request], Awaitable[None]]:
         limit=settings.rate_limit_username_info_per_minute,
         window_seconds=settings.rate_limit_window_seconds,
     )
+
+
+def rate_limit_auth() -> Callable[[Request], Awaitable[None]]:
+    return rate_limit(
+        limit=settings.rate_limit_auth_per_minute,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
