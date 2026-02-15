@@ -106,10 +106,10 @@ class TestTerminalSession:
             # exec_create 3 marta chaqirilishi kerak (screenrc + screen create + screen attach)
             assert mock_docker_client.api.exec_create.call_count == 3
 
-            # Birinchi — screenrc yaratish (sh -c ...)
+            # Birinchi — screenrc yaratish (bash -c ...)
             first_call = mock_docker_client.api.exec_create.call_args_list[0]
             first_cmd = first_call[1]["cmd"]
-            assert first_cmd[0] == "sh"
+            assert first_cmd[0] == "bash"
             assert first_cmd[1] == "-c"
 
             # Ikkinchi — screen -dmS (session yaratish)

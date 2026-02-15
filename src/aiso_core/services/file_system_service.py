@@ -226,7 +226,27 @@ class FileSystemService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Node not found: {path}",
             )
-        return _build_node_response(raw, user_id, path, self.cfs.base_path)
+
+        # DB'dan metadata olish
+        stmt = select(FileSystemNode).where(
+            and_(
+                FileSystemNode.user_id == user_id,
+                FileSystemNode.path == path,
+            )
+        )
+        result = await self.db.execute(stmt)
+        meta = result.scalar_one_or_none()
+
+        return _build_node_response(
+            raw,
+            user_id,
+            path,
+            self.cfs.base_path,
+            desktop_x=meta.desktop_x if meta else None,
+            desktop_y=meta.desktop_y if meta else None,
+            is_trashed=meta.is_trashed if meta else False,
+            original_path=meta.original_path if meta else None,
+        )
 
     async def list_directory(
         self,

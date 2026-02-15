@@ -34,10 +34,7 @@ async def _ensure_container_running(user: User) -> str:
     container_name = f"aisu_{user.id}"
 
     if not settings.container_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Container tizimi o'chirilgan",
-        )
+        return container_name
 
     try:
         from aiso_core.services.container_service import _get_docker_client
