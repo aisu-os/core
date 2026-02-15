@@ -138,7 +138,7 @@ class BetaAccessService:
 
         if not settings.smtp_host:
             # NOTE(beta): SMTP bo'lmasa local/test rejimda link logga chiqariladi.
-            logger.warning(
+            logger.debug(
                 "SMTP is not configured; beta link was not emailed. recipient=%s link=%s",
                 recipient_email,
                 register_link,
