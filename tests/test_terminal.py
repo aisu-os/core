@@ -21,7 +21,6 @@ from aiso_core.models.user import User
 from aiso_core.services.terminal_service import TerminalSession, _extract_socket
 from aiso_core.utils.security import create_access_token
 
-
 # ── Fixtures ──
 
 
@@ -359,7 +358,7 @@ class TestTerminalWebSocket:
                 return b""
             try:
                 return await asyncio.wait_for(read_queue.get(), timeout=30.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return b""
 
         session.read = mock_read
@@ -425,8 +424,9 @@ class TestTerminalWebSocket:
         async_session_factory: async_sessionmaker[AsyncSession],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from aiso_core.main import app
         from starlette.testclient import TestClient
+
+        from aiso_core.main import app
 
         monkeypatch.setattr(settings, "container_enabled", False)
         monkeypatch.setattr(
@@ -434,18 +434,18 @@ class TestTerminalWebSocket:
             async_session_factory,
         )
 
-        with TestClient(app) as tc:
-            with pytest.raises(Exception):
-                with tc.websocket_connect("/ws/terminal"):
-                    pass
+        with TestClient(app) as tc, pytest.raises(Exception):
+            with tc.websocket_connect("/ws/terminal"):
+                pass
 
     async def test_invalid_token_rejects(
         self,
         async_session_factory: async_sessionmaker[AsyncSession],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from aiso_core.main import app
         from starlette.testclient import TestClient
+
+        from aiso_core.main import app
 
         monkeypatch.setattr(settings, "container_enabled", False)
         monkeypatch.setattr(
@@ -453,10 +453,9 @@ class TestTerminalWebSocket:
             async_session_factory,
         )
 
-        with TestClient(app) as tc:
-            with pytest.raises(Exception):
-                with tc.websocket_connect("/ws/terminal?token=invalid_token"):
-                    pass
+        with TestClient(app) as tc, pytest.raises(Exception):
+            with tc.websocket_connect("/ws/terminal?token=invalid_token"):
+                pass
 
     async def test_full_session_lifecycle(
         self,
@@ -473,27 +472,26 @@ class TestTerminalWebSocket:
 
         from starlette.testclient import TestClient
 
-        with patches[0], patches[1], patches[2]:
-            with TestClient(app) as tc:
-                with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
-                    msg1 = ws.receive_json()
-                    assert msg1["type"] == "status"
-                    assert msg1["status"] == "starting-container"
+        with patches[0], patches[1], patches[2], TestClient(app) as tc:
+            with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
+                msg1 = ws.receive_json()
+                assert msg1["type"] == "status"
+                assert msg1["status"] == "starting-container"
 
-                    msg2 = ws.receive_json()
-                    assert msg2["type"] == "ready"
-                    assert "sessionId" in msg2
+                msg2 = ws.receive_json()
+                assert msg2["type"] == "ready"
+                assert "sessionId" in msg2
 
-                    prompt = ws.receive_bytes()
-                    assert b"aisu" in prompt
+                prompt = ws.receive_bytes()
+                assert b"aisu" in prompt
 
-                    ws.send_bytes(b"l")
-                    echo = ws.receive_bytes()
-                    assert echo == b"l"
+                ws.send_bytes(b"l")
+                echo = ws.receive_bytes()
+                assert echo == b"l"
 
-                    ws.send_text(json.dumps({"type": "resize", "rows": 40, "cols": 120}))
-                    time.sleep(0.1)
-                    mock_terminal_session.resize.assert_called_with(40, 120)
+                ws.send_text(json.dumps({"type": "resize", "rows": 40, "cols": 120}))
+                time.sleep(0.1)
+                mock_terminal_session.resize.assert_called_with(40, 120)
 
     async def test_session_survives_idle_period(
         self,
@@ -510,18 +508,17 @@ class TestTerminalWebSocket:
 
         from starlette.testclient import TestClient
 
-        with patches[0], patches[1], patches[2]:
-            with TestClient(app) as tc:
-                with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
-                    ws.receive_json()  # status
-                    ws.receive_json()  # ready
-                    ws.receive_bytes()  # prompt
+        with patches[0], patches[1], patches[2], TestClient(app) as tc:
+            with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
+                ws.receive_json()  # status
+                ws.receive_json()  # ready
+                ws.receive_bytes()  # prompt
 
-                    time.sleep(1.0)
+                time.sleep(1.0)
 
-                    ws.send_bytes(b"w")
-                    echo = ws.receive_bytes()
-                    assert echo == b"w"
+                ws.send_bytes(b"w")
+                echo = ws.receive_bytes()
+                assert echo == b"w"
 
     async def test_enter_command_returns_output(
         self,
@@ -538,19 +535,18 @@ class TestTerminalWebSocket:
 
         from starlette.testclient import TestClient
 
-        with patches[0], patches[1], patches[2]:
-            with TestClient(app) as tc:
-                with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
-                    ws.receive_json()  # status
-                    ws.receive_json()  # ready
-                    ws.receive_bytes()  # prompt
+        with patches[0], patches[1], patches[2], TestClient(app) as tc:
+            with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
+                ws.receive_json()  # status
+                ws.receive_json()  # ready
+                ws.receive_bytes()  # prompt
 
-                    ws.send_bytes(b"\r")
-                    echo1 = ws.receive_bytes()
-                    assert echo1 == b"\r"
+                ws.send_bytes(b"\r")
+                echo1 = ws.receive_bytes()
+                assert echo1 == b"\r"
 
-                    output = ws.receive_bytes()
-                    assert b"aisu@aisu:~$" in output
+                output = ws.receive_bytes()
+                assert b"aisu@aisu:~$" in output
 
     async def test_multiple_rapid_inputs(
         self,
@@ -567,17 +563,16 @@ class TestTerminalWebSocket:
 
         from starlette.testclient import TestClient
 
-        with patches[0], patches[1], patches[2]:
-            with TestClient(app) as tc:
-                with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
-                    ws.receive_json()  # status
-                    ws.receive_json()  # ready
-                    ws.receive_bytes()  # prompt
+        with patches[0], patches[1], patches[2], TestClient(app) as tc:
+            with tc.websocket_connect(f"/ws/terminal?token={token}") as ws:
+                ws.receive_json()  # status
+                ws.receive_json()  # ready
+                ws.receive_bytes()  # prompt
 
-                    for ch in b"helloworld":
-                        ws.send_bytes(bytes([ch]))
+                for ch in b"helloworld":
+                    ws.send_bytes(bytes([ch]))
 
-                    received = b""
-                    for _ in range(10):
-                        received += ws.receive_bytes()
-                    assert received == b"helloworld"
+                received = b""
+                for _ in range(10):
+                    received += ws.receive_bytes()
+                assert received == b"helloworld"

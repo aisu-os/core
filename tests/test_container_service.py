@@ -6,7 +6,6 @@ Docker haqiqiy bo'lmagan muhitda mock bilan ishlaydi.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,7 +21,6 @@ from aiso_core.services.container_service import (
     _get_user_data_path,
     _parse_mem_str,
 )
-
 
 # ── Yordamchi funksiyalar testlari ──
 
