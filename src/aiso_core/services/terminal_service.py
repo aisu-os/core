@@ -18,6 +18,8 @@ _SCREENRC_CONTENT = (
     "startup_message off\n"
     "defscrollback 10000\n"
     "term xterm-256color\n"
+    "shell /bin/bash\n"
+    "defshell /bin/bash\n"
 )
 
 
@@ -93,7 +95,7 @@ class TerminalSession:
             screenrc_result["Id"],
         )
 
-        # 2. screen sessiya yaratish (detached)
+        # 2. screen sessiya yaratish (detached, bash shell bilan)
         create_result = await asyncio.to_thread(
             client.api.exec_create,
             self.container_name,
@@ -103,6 +105,7 @@ class TerminalSession:
                 _SCREENRC_PATH,
                 "-dmS",
                 self._screen_session,
+                "bash",
             ],
             stdin=False,
             tty=False,
