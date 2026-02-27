@@ -3,18 +3,22 @@ from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
 
 from aiso_core.config import settings
 from aiso_core.database import get_db
 from aiso_core.main import app
+from aiso_core.models.app import App
+from aiso_core.models.app_install import AppInstall
+from aiso_core.models.app_permission import AppPermission
 from aiso_core.models.beta_access_request import BetaAccessRequest
 from aiso_core.models.container_event import ContainerEvent
 from aiso_core.models.file_system_node import FileSystemNode
 from aiso_core.models.user import User
 from aiso_core.models.user_container import UserContainer
+from aiso_core.models.user_session import UserSession
 from aiso_core.services.beta_access_service import BetaAccessService
 from aiso_core.utils.rate_limiter import get_rate_limiter
 
@@ -26,6 +30,11 @@ def _compile_uuid_sqlite(element: UUID, compiler, **kw) -> str:  # type: ignore[
 
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_sqlite(element: JSONB, compiler, **kw) -> str:  # type: ignore[no-untyped-def]
+    return "JSON"
+
+
+@compiles(ARRAY, "sqlite")
+def _compile_array_sqlite(element: ARRAY, compiler, **kw) -> str:  # type: ignore[no-untyped-def]
     return "JSON"
 
 
@@ -50,6 +59,16 @@ async def db_engine(tmp_path_factory) -> AsyncGenerator:
         )
         await conn.run_sync(
             lambda sync_conn: ContainerEvent.__table__.create(sync_conn, checkfirst=True)
+        )
+        await conn.run_sync(lambda sync_conn: App.__table__.create(sync_conn, checkfirst=True))
+        await conn.run_sync(
+            lambda sync_conn: AppInstall.__table__.create(sync_conn, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda sync_conn: AppPermission.__table__.create(sync_conn, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda sync_conn: UserSession.__table__.create(sync_conn, checkfirst=True)
         )
     try:
         yield engine

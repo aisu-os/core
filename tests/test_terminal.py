@@ -53,10 +53,11 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
     client = MagicMock()
 
     # exec_create har safar yangi ID qaytaradi
-    # 3 ta exec: screenrc yaratish + screen create + screen attach
+    # 4 ta exec: screenrc yaratish + screen -ls check + screen create + screen attach
     exec_ids = iter(
         [
             "exec_screenrc_setup",
+            "exec_screen_check_001",
             "exec_screen_create_123",
             "exec_screen_attach_456",
         ]
@@ -65,12 +66,13 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
 
     # exec_start natijalari:
     # 1. screenrc yaratish -> bytes output
-    # 2. screen -dmS (create) -> bytes output
-    # 3. screen -r (attach) -> socket wrapper
+    # 2. screen -ls check
+    # 3. screen -dmS (create) -> bytes output
+    # 4. screen -d -r (attach) -> socket wrapper
     socket_wrapper = MagicMock()
     socket_wrapper._sock = mock_socket
 
-    start_results = iter([b"", b"", socket_wrapper])
+    start_results = iter([b"", b"No Sockets found.", b"", socket_wrapper])
     client.api.exec_start.side_effect = lambda *a, **kw: next(start_results)
 
     # exec_inspect (screen create natijasi)
@@ -105,8 +107,9 @@ class TestTerminalSession:
             assert session._raw_socket is mock_socket
             assert not session.is_closed
 
-            # exec_create 3 marta chaqirilishi kerak (screenrc + screen create + screen attach)
-            assert mock_docker_client.api.exec_create.call_count == 3
+            # exec_create 4 marta chaqirilishi kerak
+            # (screenrc + screen -ls + screen create + screen attach)
+            assert mock_docker_client.api.exec_create.call_count == 4
 
             # Birinchi — screenrc yaratish (bash -c ...)
             first_call = mock_docker_client.api.exec_create.call_args_list[0]
@@ -114,17 +117,56 @@ class TestTerminalSession:
             assert first_cmd[0] == "bash"
             assert first_cmd[1] == "-c"
 
-            # Ikkinchi — screen -dmS (session yaratish)
+            # Ikkinchi — screen -ls (mavjud sessiyani tekshirish)
             second_call = mock_docker_client.api.exec_create.call_args_list[1]
             second_cmd = second_call[1]["cmd"]
             assert second_cmd[0] == "screen"
-            assert "-dmS" in second_cmd
+            assert "-ls" in second_cmd
 
-            # Uchinchi — screen -r (attach)
+            # Uchinchi — screen -dmS (session yaratish)
             third_call = mock_docker_client.api.exec_create.call_args_list[2]
             third_cmd = third_call[1]["cmd"]
             assert third_cmd[0] == "screen"
-            assert "-r" in third_cmd
+            assert "-dmS" in third_cmd
+
+            # To'rtinchi — screen -d -r (attach)
+            fourth_call = mock_docker_client.api.exec_create.call_args_list[3]
+            fourth_cmd = fourth_call[1]["cmd"]
+            assert fourth_cmd[0] == "screen"
+            assert "-d" in fourth_cmd
+            assert "-r" in fourth_cmd
+
+    async def test_start_attaches_existing_session_without_creating_new_one(
+        self,
+        mock_socket: MagicMock,
+    ) -> None:
+        client = MagicMock()
+        socket_wrapper = MagicMock()
+        socket_wrapper._sock = mock_socket
+        session = TerminalSession("aisu_test", session_id="my-session-01")
+
+        client.api.exec_create.side_effect = [
+            {"Id": "exec_screenrc_setup"},
+            {"Id": "exec_screen_check_001"},
+            {"Id": "exec_screen_attach_456"},
+        ]
+        client.api.exec_start.side_effect = [
+            b"",
+            f"There is a screen on:\n\t{session._screen_session}".encode(),
+            socket_wrapper,
+        ]
+
+        with patch(
+            "aiso_core.services.terminal_service._get_docker_client",
+            return_value=client,
+        ):
+            await session.start()
+
+        called_cmds = [call[1]["cmd"] for call in client.api.exec_create.call_args_list]
+        assert len(called_cmds) == 3
+        assert not any("-dmS" in cmd for cmd in called_cmds)
+        assert "-d" in called_cmds[2]
+        assert "-r" in called_cmds[2]
 
     async def test_read_returns_data(
         self,
@@ -228,11 +270,17 @@ class TestTerminalSession:
 
         socket_wrapper = MagicMock()
         socket_wrapper._sock = bad_socket
-        mock_docker_client.api.exec_start.side_effect = [b"", b"", socket_wrapper]
+        mock_docker_client.api.exec_start.side_effect = [
+            b"",
+            b"No Sockets found.",
+            b"",
+            socket_wrapper,
+        ]
         mock_docker_client.api.exec_create.side_effect = [
             {"Id": "e1"},
             {"Id": "e2"},
             {"Id": "e3"},
+            {"Id": "e4"},
         ]
 
         with patch(
@@ -256,11 +304,17 @@ class TestTerminalSession:
 
         socket_wrapper = MagicMock()
         socket_wrapper._sock = bad_socket
-        mock_docker_client.api.exec_start.side_effect = [b"", b"", socket_wrapper]
+        mock_docker_client.api.exec_start.side_effect = [
+            b"",
+            b"No Sockets found.",
+            b"",
+            socket_wrapper,
+        ]
         mock_docker_client.api.exec_create.side_effect = [
             {"Id": "e1"},
             {"Id": "e2"},
             {"Id": "e3"},
+            {"Id": "e4"},
         ]
 
         with patch(
@@ -292,9 +346,10 @@ class TestTerminalSession:
         # screenrc yaratish muvaffaqiyatli, lekin screen create muvaffaqiyatsiz
         mock_docker_client.api.exec_create.side_effect = [
             {"Id": "e_screenrc"},
-            {"Id": "e1"},
+            {"Id": "e_check"},
+            {"Id": "e_create"},
         ]
-        mock_docker_client.api.exec_start.side_effect = [b"", b"no screen running"]
+        mock_docker_client.api.exec_start.side_effect = [b"", b"No Sockets found.", b"no screen running"]
 
         with patch(
             "aiso_core.services.terminal_service._get_docker_client",
@@ -515,6 +570,51 @@ class TestTerminalWebSocket:
                 ws.send_text(json.dumps({"type": "resize", "rows": 40, "cols": 120}))
                 time.sleep(0.1)
                 mock_terminal_session.resize.assert_called_with(40, 120)
+
+    async def test_ws_passes_session_id_to_terminal_session(
+        self,
+        user_and_token: tuple[User, str],
+        async_session_factory: async_sessionmaker[AsyncSession],
+        mock_terminal_session: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _, token = user_and_token
+        from starlette.testclient import TestClient
+
+        from aiso_core.main import app
+
+        monkeypatch.setattr(settings, "container_enabled", False)
+        monkeypatch.setattr(
+            "aiso_core.api.v1.terminal.async_session_factory",
+            async_session_factory,
+        )
+
+        mock_container_instance = AsyncMock()
+        mock_container_instance.start_container.return_value = {
+            "status": "running",
+            "message": "ok",
+        }
+
+        with (
+            patch(
+                "aiso_core.api.v1.terminal.ContainerService",
+                return_value=mock_container_instance,
+            ),
+            patch(
+                "aiso_core.api.v1.terminal.TerminalSession",
+                return_value=mock_terminal_session,
+            ) as terminal_session_cls,
+            TestClient(app) as tc,
+        ):
+            with tc.websocket_connect(f"/ws/terminal?token={token}&session_id=persist-001") as ws:
+                ws.receive_json()  # status
+                ws.receive_json()  # ready
+
+            expected_container_name = f"aisu_{user_and_token[0].id}"
+            terminal_session_cls.assert_called_once_with(
+                expected_container_name,
+                session_id="persist-001",
+            )
 
     async def test_session_survives_idle_period(
         self,
