@@ -111,6 +111,12 @@ class AuthService:
             await self.db.flush()
             await self.db.refresh(user)
 
+            # Tizim ilovalarini yangi foydalanuvchiga o'rnatish
+            from aiso_core.services.system_app_service import SystemAppService
+
+            system_app_service = SystemAppService(self.db)
+            await system_app_service.install_system_apps_for_user(user_id)
+
             # Container provisioning (sinxron — user kutadi)
             # Container yaratilganda _create_user_dirs() papkalarni yaratadi
             container_status = "disabled"

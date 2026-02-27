@@ -4,7 +4,8 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
+import sqlalchemy as sa
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +42,9 @@ class App(Base, TimestampMixin):
     review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_system: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa.false()
+    )
 
     # Relationships
     versions: Mapped[list[AppVersion]] = relationship(back_populates="app")  # noqa: F821
