@@ -73,11 +73,32 @@ class TerminalSession:
         self._socket_adapter: object | None = None
         self._closed = False
 
+    async def _check_existing_session(self, client: object) -> bool:
+        """Containerda mavjud screen sessiyani tekshirish."""
+        try:
+            check_result = await asyncio.to_thread(
+                client.api.exec_create,  # type: ignore[union-attr]
+                self.container_name,
+                cmd=["screen", "-ls"],
+                stdin=False,
+                tty=False,
+                user="aisu",
+            )
+            output = await asyncio.to_thread(
+                client.api.exec_start,  # type: ignore[union-attr]
+                check_result["Id"],
+            )
+            output_str = output.decode() if isinstance(output, bytes) else str(output)
+            return self._screen_session in output_str
+        except Exception:
+            logger.debug("screen -ls tekshirishda xatolik", exc_info=True)
+            return False
+
     async def start(self) -> None:
-        """screen sessiya yaratib, unga exec orqali ulanadi."""
+        """screen sessiya yaratib yoki mavjudiga ulanib, exec orqali attach bo'ladi."""
         client = _get_docker_client()
 
-        # 1. screenrc yaratish (screen ni yashirin qilish uchun)
+        # 1. screenrc yaratish (har doim — idempotent)
         screenrc_result = await asyncio.to_thread(
             client.api.exec_create,
             self.container_name,
@@ -95,39 +116,49 @@ class TerminalSession:
             screenrc_result["Id"],
         )
 
-        # 2. screen sessiya yaratish (detached, bash shell bilan)
-        create_result = await asyncio.to_thread(
-            client.api.exec_create,
-            self.container_name,
-            cmd=[
-                "screen",
-                "-c",
-                _SCREENRC_PATH,
-                "-dmS",
-                self._screen_session,
-                "bash",
-            ],
-            stdin=False,
-            tty=False,
-            user="aisu",
-            environment={"TERM": "xterm-256color"},
-        )
-        create_output = await asyncio.to_thread(
-            client.api.exec_start,
-            create_result["Id"],
-        )
-        # screen yaratilganini tekshirish
-        inspect = await asyncio.to_thread(
-            client.api.exec_inspect,
-            create_result["Id"],
-        )
-        if inspect.get("ExitCode", 1) != 0:
-            raise RuntimeError(
-                f"screen session yaratib bo'lmadi: exit={inspect.get('ExitCode')}, "
-                f"output={create_output}"
+        # 2. Mavjud screen sessiyani tekshirish
+        session_exists = await self._check_existing_session(client)
+
+        if not session_exists:
+            # Yangi screen sessiya yaratish (detached, bash shell bilan)
+            create_result = await asyncio.to_thread(
+                client.api.exec_create,
+                self.container_name,
+                cmd=[
+                    "screen",
+                    "-c",
+                    _SCREENRC_PATH,
+                    "-dmS",
+                    self._screen_session,
+                    "bash",
+                ],
+                stdin=False,
+                tty=False,
+                user="aisu",
+                environment={"TERM": "xterm-256color"},
             )
+            create_output = await asyncio.to_thread(
+                client.api.exec_start,
+                create_result["Id"],
+            )
+            # screen yaratilganini tekshirish
+            inspect = await asyncio.to_thread(
+                client.api.exec_inspect,
+                create_result["Id"],
+            )
+            if inspect.get("ExitCode", 1) != 0:
+                raise RuntimeError(
+                    f"screen session yaratib bo'lmadi: exit={inspect.get('ExitCode')}, "
+                    f"output={create_output}"
+                )
+            logger.debug("Yangi screen sessiya yaratildi: %s", self._screen_session)
+        else:
+            logger.debug("Mavjud screen sessiyaga ulanilmoqda: %s", self._screen_session)
 
         # 3. screen sessiyaga attach bo'lish (interactive exec + socket)
+        # -d -r: avval mavjud attach ni detach qiladi (agar bor bo'lsa),
+        # keyin qayta attach bo'ladi. Bu oldingi exec to'liq yopilmagan
+        # holatda ham ishlaydi (masalan, WebSocket uzilganda).
         exec_data = await asyncio.to_thread(
             client.api.exec_create,
             self.container_name,
@@ -135,6 +166,7 @@ class TerminalSession:
                 "screen",
                 "-c",
                 _SCREENRC_PATH,
+                "-d",
                 "-r",
                 self._screen_session,
             ],

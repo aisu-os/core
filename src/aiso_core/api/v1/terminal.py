@@ -46,7 +46,11 @@ async def _authenticate_ws(token: str | None, db: AsyncSession) -> User | None:
 
 
 @router.websocket("/terminal")
-async def terminal_ws(websocket: WebSocket, token: str | None = None) -> None:
+async def terminal_ws(
+    websocket: WebSocket,
+    token: str | None = None,
+    session_id: str | None = None,
+) -> None:
     """Terminal WebSocket endpoint.
 
     Oqim:
@@ -125,7 +129,7 @@ async def terminal_ws(websocket: WebSocket, token: str | None = None) -> None:
                 pass
             return
         logger.debug("Container ready, creating exec session...")
-        session = TerminalSession(container_name)
+        session = TerminalSession(container_name, session_id=session_id)
 
         try:
             await session.start()
