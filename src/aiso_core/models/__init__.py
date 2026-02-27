@@ -11,6 +11,7 @@ from aiso_core.models.container_event import ContainerEvent
 from aiso_core.models.file_system_node import FileSystemNode
 from aiso_core.models.user import User
 from aiso_core.models.user_container import UserContainer
+from aiso_core.models.user_session import UserSession
 
 __all__ = [
     "Base",
@@ -26,4 +27,5 @@ __all__ = [
     "UserContainer",
     "ContainerEvent",
     "FileSystemNode",
+    "UserSession",
 ]
