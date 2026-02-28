@@ -74,6 +74,10 @@ RUN chown -R aisu:aisu /home/aisu
 COPY docker/user-base/bashrc.default /home/aisu/.bashrc
 RUN chown aisu:aisu /home/aisu/.bashrc
 
+# Default tmux config (mouse scroll yoqilgan)
+COPY docker/user-base/tmux.conf /home/aisu/.tmux.conf
+RUN chown aisu:aisu /home/aisu/.tmux.conf
+
 # Entrypoint
 COPY docker/user-base/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

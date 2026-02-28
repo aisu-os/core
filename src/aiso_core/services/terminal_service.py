@@ -20,6 +20,8 @@ _SCREENRC_CONTENT = (
     "term xterm-256color\n"
     "shell /bin/bash\n"
     "defshell /bin/bash\n"
+    # Alternate screen buffer ni o'chirish — xterm.js scrollback ishlashi uchun
+    "termcapinfo xterm* ti@:te@\n"
 )
 
 
