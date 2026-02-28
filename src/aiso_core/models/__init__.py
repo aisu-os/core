@@ -9,6 +9,7 @@ from aiso_core.models.base import Base
 from aiso_core.models.beta_access_request import BetaAccessRequest
 from aiso_core.models.container_event import ContainerEvent
 from aiso_core.models.file_system_node import FileSystemNode
+from aiso_core.models.port_forward import PortForward
 from aiso_core.models.user import User
 from aiso_core.models.user_container import UserContainer
 from aiso_core.models.user_session import UserSession
@@ -27,5 +28,6 @@ __all__ = [
     "UserContainer",
     "ContainerEvent",
     "FileSystemNode",
+    "PortForward",
     "UserSession",
 ]
