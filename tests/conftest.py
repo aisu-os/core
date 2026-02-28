@@ -16,6 +16,7 @@ from aiso_core.models.app_permission import AppPermission
 from aiso_core.models.beta_access_request import BetaAccessRequest
 from aiso_core.models.container_event import ContainerEvent
 from aiso_core.models.file_system_node import FileSystemNode
+from aiso_core.models.port_forward import PortForward
 from aiso_core.models.user import User
 from aiso_core.models.user_container import UserContainer
 from aiso_core.models.user_session import UserSession
@@ -69,6 +70,9 @@ async def db_engine(tmp_path_factory) -> AsyncGenerator:
         )
         await conn.run_sync(
             lambda sync_conn: UserSession.__table__.create(sync_conn, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda sync_conn: PortForward.__table__.create(sync_conn, checkfirst=True)
         )
     try:
         yield engine
@@ -438,6 +442,9 @@ async def client(
     monkeypatch.setattr(settings, "app_url", "http://testserver")
     monkeypatch.setattr(settings, "rate_limit_backend", "memory")
     monkeypatch.setattr(settings, "container_enabled", False)
+    monkeypatch.setattr(settings, "caddy_admin_url", "")
+    monkeypatch.setattr(settings, "port_forward_domain", "t.localhost")
+    monkeypatch.setattr(settings, "port_forward_scheme", "http")
     monkeypatch.setattr(settings, "beta_access_enabled", True)
     get_rate_limiter.cache_clear()
 
