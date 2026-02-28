@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     container_pids_limit: int = 64
     container_network_rate: str = "5mbit"
 
+    # Port Forward / Caddy
+    caddy_admin_url: str = ""  # Bo'sh = Caddy disabled
+    port_forward_domain: str = "t.localhost"  # prod: t.aisu.run
+    port_forward_scheme: str = "http"  # prod: https
+
     # Rate limiting
     rate_limit_backend: str = "memory"  # "memory" or "redis"
     rate_limit_redis_url: str = "redis://localhost:6379/0"

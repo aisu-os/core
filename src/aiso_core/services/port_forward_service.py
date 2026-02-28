@@ -6,9 +6,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aiso_core.config import settings
 from aiso_core.models.port_forward import PortForward
 from aiso_core.models.user_container import UserContainer
 from aiso_core.schemas.port_forward import PortForwardListResponse, PortForwardResponse
+from aiso_core.services.caddy_service import CaddyError, CaddyService
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +111,14 @@ class PortForwardService:
         await self.db.flush()
         await self.db.refresh(forward)
 
+        # 7. Caddy route qo'shish
+        caddy = CaddyService()
+        upstream = f"{container.container_ip}:{container_port}"
+        try:
+            await caddy.add_route(subdomain, upstream)
+        except CaddyError:
+            logger.warning("Caddy route qo'shishda xato: %s", subdomain, exc_info=True)
+
         return self._to_response(forward)
 
     async def get_forward(
@@ -121,6 +131,14 @@ class PortForwardService:
         self, user_id: uuid.UUID, forward_id: uuid.UUID
     ) -> None:
         forward = await self._get_user_forward(user_id, forward_id)
+
+        # Caddy route o'chirish
+        caddy = CaddyService()
+        try:
+            await caddy.remove_route(forward.subdomain)
+        except CaddyError:
+            logger.warning("Caddy route o'chirishda xato: %s", forward.subdomain, exc_info=True)
+
         await self.db.delete(forward)
 
     async def _get_user_forward(
@@ -144,7 +162,7 @@ class PortForwardService:
         return PortForwardResponse(
             id=forward.id,
             subdomain=forward.subdomain,
-            url=f"https://{forward.subdomain}.t.aisu.run",
+            url=f"{settings.port_forward_scheme}://{forward.subdomain}.{settings.port_forward_domain}",
             container_port=forward.container_port,
             protocol=forward.protocol,
             status=forward.status,

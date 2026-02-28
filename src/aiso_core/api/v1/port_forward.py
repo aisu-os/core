@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aiso_core.config import settings
 from aiso_core.database import get_db
 from aiso_core.dependencies import get_current_user, rate_limit
 from aiso_core.models.user import User
@@ -14,6 +15,15 @@ from aiso_core.schemas.port_forward import (
 from aiso_core.services.port_forward_service import PortForwardService
 
 router = APIRouter()
+
+
+@router.get("/config")
+async def get_port_forward_config():
+    """Port forward domain konfiguratsiyasi (frontend uchun)."""
+    return {
+        "domain": settings.port_forward_domain,
+        "scheme": settings.port_forward_scheme,
+    }
 
 
 @router.get("", response_model=PortForwardListResponse)
