@@ -23,11 +23,11 @@ class CreatePortForwardRequest(BaseModel):
         if v is None:
             return v
         if not _SUBDOMAIN_RE.match(v):
-            raise ValueError("Faqat kichik harflar, raqamlar va tire ruxsat etilgan")
+            raise ValueError("Only lowercase letters, numbers, and hyphens are allowed")
         if "--" in v:
-            raise ValueError("Ikki tire ketma-ket bo'lmasin")
+            raise ValueError("Consecutive hyphens are not allowed")
         if v in RESERVED_SUBDOMAINS:
-            raise ValueError("Bu subdomain band")
+            raise ValueError("This subdomain is reserved")
         return v
 
 

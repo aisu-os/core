@@ -83,7 +83,7 @@ class BetaAccessService:
 
         return BetaAccessRequestResponse(
             request_id=request.id,
-            message="Beta access link emailga yuborildi",
+            message="Beta access link has been sent to your email",
             token_expires_at=token_expires_at,
         )
 
@@ -137,7 +137,7 @@ class BetaAccessService:
         )
 
         if not settings.smtp_host:
-            # NOTE(beta): SMTP bo'lmasa local/test rejimda link logga chiqariladi.
+            # NOTE(beta): Without SMTP, the link is logged in local/test mode.
             logger.debug(
                 "SMTP is not configured; beta link was not emailed. recipient=%s link=%s",
                 recipient_email,
@@ -154,8 +154,8 @@ class BetaAccessService:
         message["From"] = settings.smtp_from_email
         message["To"] = recipient_email
         message.set_content(
-            "Siz Aisu beta access uchun so'rov yubordingiz. "
-            f"Ro'yxatdan o'tish uchun bir martalik link: {register_link}"
+            "You have requested Aisu beta access. "
+            f"One-time registration link: {register_link}"
         )
 
         try:

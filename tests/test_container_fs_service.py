@@ -1,7 +1,7 @@
-"""ContainerFsService unit testlari.
+"""ContainerFsService unit tests.
 
-conftest.py dagi _LocalFsService orqali Docker kerak emas —
-lokal fayl tizimida ishlaydi.
+No Docker required — uses _LocalFsService from conftest.py,
+which operates on the local file system.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from aiso_core.services.container_fs_service import ContainerFsService, _validate_path
 
-# ── _validate_path testlari ──
+# ── _validate_path tests ──
 
 
 class TestValidatePath:
@@ -36,13 +36,13 @@ class TestValidatePath:
             _validate_path("/../secret")
 
     def test_single_dot_allowed(self) -> None:
-        _validate_path("/Documents/./file.txt")  # "." bitta nuqta ruxsat
+        _validate_path("/Documents/./file.txt")  # single dot "." is allowed
 
     def test_dotdot_in_name_allowed(self) -> None:
-        _validate_path("/Documents/my..file.txt")  # fayl nomida ".." ruxsat
+        _validate_path("/Documents/my..file.txt")  # ".." in filename is allowed
 
 
-# ── Path konvertatsiya testlari ──
+# ── Path conversion tests ──
 
 
 class TestPathConversion:
@@ -77,22 +77,22 @@ class TestPathConversion:
             svc._vfs_to_container("/Documents/../../../etc/passwd")
 
 
-# ── ContainerFsService operatsiyalari (lokal fayl tizimida) ──
-# conftest.py dagi _LocalFsService ishlatilmaydi —
-# to'g'ridan-to'g'ri ContainerFsService dagi path logikasi tekshiriladi.
-# Docker-ga bog'liq metodlar uchun mock ishlatamiz.
+# ── ContainerFsService operations (on local file system) ──
+# _LocalFsService from conftest.py is not used here —
+# path logic in ContainerFsService is tested directly.
+# Mocks are used for Docker-dependent methods.
 
 
 class TestContainerFsOperations:
-    """Lokal fayl tizimida ContainerFsService operatsiyalarini tekshirish.
+    """Test ContainerFsService operations on the local file system.
 
-    Docker exec o'rniga to'g'ridan-to'g'ri fayl tizimida ishlash uchun
-    conftest.py dagi _LocalFsService uslubida tmp_path ishlatamiz.
+    Instead of Docker exec, we work directly on the file system
+    using tmp_path in the style of _LocalFsService from conftest.py.
     """
 
     @pytest.fixture
     def fs_root(self, tmp_path) -> Path:
-        """Test uchun fayl tizimi root papkasi."""
+        """File system root directory for tests."""
         base = tmp_path / "home" / "aisu"
         for d in ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos", ".Trash"]:
             (base / d).mkdir(parents=True)
@@ -100,7 +100,7 @@ class TestContainerFsOperations:
 
     @pytest.fixture
     def local_fs(self, fs_root: Path):
-        """Lokal fayl tizimida ishlaydigan mock service."""
+        """Mock service that operates on the local file system."""
         from tests.conftest import _LocalFsService
 
         svc = _LocalFsService.__new__(_LocalFsService)
@@ -175,7 +175,7 @@ class TestContainerFsOperations:
         assert exc_info.value.status_code == 404
 
     async def test_list_directory_dirs_first(self, local_fs, fs_root: Path) -> None:
-        """Papkalar fayllardan oldin kelishi kerak."""
+        """Directories should come before files."""
         (fs_root / "Desktop" / "subdir").mkdir()
         (fs_root / "Desktop" / "file.txt").touch()
         items = await local_fs.list_directory("/Desktop")
@@ -210,7 +210,7 @@ class TestContainerFsOperations:
         (fs_root / "Documents" / "original.txt").write_text("original")
         new_path = await local_fs.copy("/Documents/original.txt", "/Desktop")
         assert new_path == "/Desktop/original.txt"
-        assert (fs_root / "Documents" / "original.txt").exists()  # original qolgan
+        assert (fs_root / "Documents" / "original.txt").exists()  # original still exists
         assert (fs_root / "Desktop" / "original.txt").read_text() == "original"
 
     async def test_copy_directory(self, local_fs, fs_root: Path) -> None:
@@ -245,7 +245,7 @@ class TestContainerFsOperations:
         assert (fs_root / ".Trash" / "trash_me.txt").read_text() == "trash"
 
     async def test_move_to_trash_duplicate_name(self, local_fs, fs_root: Path) -> None:
-        """Agar Trash da bir xil nomli fayl bo'lsa, unikal nom yaratiladi."""
+        """If a file with the same name exists in Trash, a unique name is generated."""
         (fs_root / ".Trash" / "dup.txt").touch()
         (fs_root / "Documents" / "dup.txt").touch()
         trash_path = await local_fs.move_to_trash("/Documents/dup.txt")

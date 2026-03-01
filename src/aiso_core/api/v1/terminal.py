@@ -21,7 +21,7 @@ router = APIRouter()
 
 
 async def _authenticate_ws(token: str | None, db: AsyncSession) -> User | None:
-    """WebSocket token dan user olish."""
+    """Get user from WebSocket token."""
     if not token:
         return None
 
@@ -53,10 +53,10 @@ async def terminal_ws(
 ) -> None:
     """Terminal WebSocket endpoint.
 
-    Oqim:
+    Flow:
     1. Token auth
-    2. Container running tekshirish / ishga tushirish
-    3. Docker exec session yaratish
+    2. Check/start container running
+    3. Create Docker exec session
     4. Bi-directional I/O loop
     """
     async with async_session_factory() as db:
@@ -68,7 +68,7 @@ async def terminal_ws(
         await websocket.accept()
         logger.debug("Terminal WS accepted: user_id=%s", user.id)
 
-        # Container holatini tekshirish va ishga tushirish
+        # Check container state and start
         container_name = f"aisu_{user.id}"
         try:
             await websocket.send_json({"type": "status", "status": "starting-container"})
@@ -85,18 +85,18 @@ async def terminal_ws(
                 await websocket.send_json(
                     {
                         "type": "error",
-                        "message": "Container ishga tushmadi",
+                        "message": "Container failed to start",
                     }
                 )
                 await websocket.close()
                 return
 
-            # Yangi yaratilgan yoki qayta ishga tushirilgan container tayyor bo'lishini kutish
+            # Wait for newly created or restarted container to be ready
             was_reprovisioned = "provisioned" in result.get("message", "")
             if was_reprovisioned:
 
                 def _wait_for_ready() -> None:
-                    """Container to'liq tayyor bo'lguncha kutish."""
+                    """Wait until the container is fully ready."""
                     import time
 
                     client = _get_docker_client()
@@ -113,15 +113,15 @@ async def terminal_ws(
                 await asyncio.sleep(0.5)
 
         except WebSocketDisconnect:
-            logger.info("Container start paytida klient uzildi: user_id=%s", user.id)
+            logger.info("Client disconnected during container start: user_id=%s", user.id)
             return
         except Exception:
-            logger.exception("Container start xatolik: user_id=%s", user.id)
+            logger.exception("Container start error: user_id=%s", user.id)
             try:
                 await websocket.send_json(
                     {
                         "type": "error",
-                        "message": "Container xatolik",
+                        "message": "Container error",
                     }
                 )
                 await websocket.close()
@@ -135,12 +135,12 @@ async def terminal_ws(
             await session.start()
             logger.debug("Exec session started: %s", session.session_id)
         except Exception:
-            logger.exception("Terminal session start xatolik: user_id=%s", user.id)
+            logger.exception("Terminal session start error: user_id=%s", user.id)
             try:
                 await websocket.send_json(
                     {
                         "type": "error",
-                        "message": "Terminal sessiya yaratib bo'lmadi",
+                        "message": "Failed to create terminal session",
                     }
                 )
                 await websocket.close()
@@ -158,13 +158,13 @@ async def terminal_ws(
 
         # Bi-directional I/O
         async def read_from_container() -> None:
-            """Container dan o'qib, WebSocket ga yozish."""
+            """Read from container and write to WebSocket."""
             try:
                 while not session.is_closed:
                     data = await session.read()
                     if not data:
-                        # Container to'xtagan bo'lishi mumkin — tekshirish
-                        reason = "Docker exec yopildi"
+                        # Container may have stopped — check
+                        reason = "Docker exec closed"
                         try:
 
                             def _check_container() -> str:
@@ -172,7 +172,7 @@ async def terminal_ws(
                                 c = client.containers.get(container_name)
                                 if c.status != "running":
                                     logs = c.logs(tail=3).decode().strip()
-                                    return f"Container to'xtadi ({c.status}): {logs}"
+                                    return f"Container stopped ({c.status}): {logs}"
                                 return "Docker exec EOF"
 
                             reason = await asyncio.to_thread(_check_container)
@@ -194,7 +194,7 @@ async def terminal_ws(
                 logger.debug("read: exception", exc_info=True)
 
         async def write_to_container() -> None:
-            """WebSocket dan o'qib, container ga yozish."""
+            """Read from WebSocket and write to container."""
             try:
                 while not session.is_closed:
                     message = await websocket.receive()

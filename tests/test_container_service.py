@@ -1,6 +1,6 @@
-"""ContainerService unit testlari.
+"""ContainerService unit tests.
 
-Docker haqiqiy bo'lmagan muhitda mock bilan ishlaydi.
+Works with mocks in a non-real Docker environment.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from aiso_core.services.container_service import (
     _parse_mem_str,
 )
 
-# ── Yordamchi funksiyalar testlari ──
+# ── Helper function tests ──
 
 
 class TestParseMemStr:
@@ -84,7 +84,7 @@ class TestCreateUserDirs:
         uid = uuid.uuid4()
         with patch.object(settings, "user_data_base_path", str(tmp_path)):
             _create_user_dirs(uid)
-            _create_user_dirs(uid)  # ikkinchi marta xatolik bermaydi
+            _create_user_dirs(uid)  # second call does not raise an error
 
 
 class TestCreateContainerSync:
@@ -164,7 +164,7 @@ class TestCreateContainerSync:
         assert result["container_ip"] is None
 
 
-# ── ContainerService testlari ──
+# ── ContainerService tests ──
 
 
 class TestContainerService:
@@ -624,7 +624,7 @@ class TestContainerService:
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """Docker da status o'zgargan bo'lsa, DB ni yangilaydi."""
+        """Updates the DB if the status has changed in Docker."""
         container = UserContainer(
             user_id=user.id,
             container_name=f"aisu_{user.id}",
@@ -639,7 +639,7 @@ class TestContainerService:
         await db_session.commit()
 
         mock_docker_container = MagicMock()
-        mock_docker_container.status = "exited"  # Docker da boshqa status
+        mock_docker_container.status = "exited"  # Different status in Docker
         mock_client = MagicMock()
         mock_client.containers.get.return_value = mock_docker_container
 
@@ -659,7 +659,7 @@ class TestContainerService:
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """DB da stopped, Docker da running — DB sinxronlanishi kerak."""
+        """DB says stopped, Docker says running — DB should be synced."""
         container = UserContainer(
             user_id=user.id,
             container_name=f"aisu_{user.id}",
@@ -694,7 +694,7 @@ class TestContainerService:
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """Docker da container bor lekin start qilishda xatolik."""
+        """Container exists in Docker but fails to start."""
         container = UserContainer(
             user_id=user.id,
             container_name=f"aisu_{user.id}",

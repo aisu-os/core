@@ -33,7 +33,7 @@ router = APIRouter()
 
 
 async def _ensure_container_running(user: User) -> str:
-    """Container ishayotganini tekshirish. container_name qaytaradi."""
+    """Check if the container is running. Returns container_name."""
     container_name = f"aisu_{user.id}"
 
     if not settings.container_enabled:
@@ -47,14 +47,14 @@ async def _ensure_container_running(user: User) -> str:
         if container.status != "running":
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Container ishlamayapti. Avval terminal orqali tizimni ishga tushiring.",
+                detail="Container is not running. Start the system via terminal first.",
             )
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Container topilmadi. Avval terminal orqali tizimni ishga tushiring.",
+            detail="Container not found. Start the system via terminal first.",
         ) from exc
 
     return container_name

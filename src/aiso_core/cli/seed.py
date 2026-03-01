@@ -1,6 +1,6 @@
-"""Tizim ilovalarini bazaga seed qilish.
+"""Seed system apps into the database.
 
-Ishga tushirish:
+Usage:
     cd aiso-core
     uv run python -m aiso_core.cli.seed
 """

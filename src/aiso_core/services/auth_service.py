@@ -57,8 +57,8 @@ class AuthService:
         beta_request = None
         beta_service: BetaAccessService | None = None
 
-        # NOTE(beta): Bu vaqtinchalik early-access gate.
-        # Public signup ochilganda token tekshiruv olib tashlanadi.
+        # NOTE(beta): This is a temporary early-access gate.
+        # Token check will be removed when public signup is enabled.
         if settings.beta_access_enabled:
             beta_service = BetaAccessService(self.db)
             beta_request = await beta_service.get_valid_request_or_raise(
@@ -66,7 +66,7 @@ class AuthService:
                 token=beta_token,
             )
 
-        # Email mavjudligini tekshirish
+        # Check if email already exists
         stmt = select(User).where(User.email == normalized_email)
         result = await self.db.execute(stmt)
         if result.scalar_one_or_none() is not None:
@@ -75,7 +75,7 @@ class AuthService:
                 detail="This email is already registered",
             )
 
-        # Username mavjudligini tekshirish
+        # Check if username already exists
         stmt = select(User).where(User.username == username)
         result = await self.db.execute(stmt)
         if result.scalar_one_or_none() is not None:
@@ -86,15 +86,15 @@ class AuthService:
 
         user_id = uuid.uuid4()
 
-        # Avatar URL aniqlash
+        # Determine avatar URL
         avatar_url: str | None = None
         if avatar and avatar.filename:
             avatar_url = await save_avatar(avatar, user_id, settings.upload_dir)
         elif avatar_emoji:
             avatar_url = avatar_emoji
 
-        # Savepoint orqali atomik tranzaksiya: user yaratish, container
-        # provisioning va beta token belgilash birgalikda commit/rollback bo'ladi.
+        # Atomic transaction via savepoint: user creation, container
+        # provisioning and beta token marking commit/rollback together.
         async with self.db.begin_nested():
             user = User(
                 id=user_id,
@@ -111,14 +111,14 @@ class AuthService:
             await self.db.flush()
             await self.db.refresh(user)
 
-            # Tizim ilovalarini yangi foydalanuvchiga o'rnatish
+            # Install system apps for the new user
             from aiso_core.services.system_app_service import SystemAppService
 
             system_app_service = SystemAppService(self.db)
             await system_app_service.install_system_apps_for_user(user_id)
 
-            # Container provisioning (sinxron — user kutadi)
-            # Container yaratilganda _create_user_dirs() papkalarni yaratadi
+            # Container provisioning (synchronous — user waits)
+            # _create_user_dirs() creates directories when container is created
             container_status = "disabled"
             if settings.container_enabled:
                 from aiso_core.services.container_service import ContainerService
@@ -161,7 +161,7 @@ class AuthService:
                 detail="Account is inactive",
             )
 
-        # Container mavjudligini tekshirish va ishga tushirish
+        # Check container existence and start it
         if settings.container_enabled:
             from aiso_core.services.container_service import ContainerService
 

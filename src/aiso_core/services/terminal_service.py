@@ -9,7 +9,7 @@ from aiso_core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# screen ni yashirin qilish uchun config
+# Config to hide screen
 _SCREENRC_PATH = "/tmp/.aisu_screenrc"
 _SCREENRC_CONTENT = (
     'escape ""\n'
@@ -20,7 +20,7 @@ _SCREENRC_CONTENT = (
     "term xterm-256color\n"
     "shell /bin/bash\n"
     "defshell /bin/bash\n"
-    # Alternate screen buffer ni o'chirish — xterm.js scrollback ishlashi uchun
+    # Disable alternate screen buffer — so xterm.js scrollback works
     "termcapinfo xterm* ti@:te@\n"
 )
 
@@ -32,9 +32,9 @@ def _get_docker_client():  # noqa: ANN202
 
 
 def _extract_socket(sock_adapter: object) -> socket.socket:
-    """docker-py exec_start(socket=True) dan raw socket olish.
+    """Get raw socket from docker-py exec_start(socket=True).
 
-    docker-py versiyasiga qarab qaytariladigan obyekt turlicha:
+    The returned object type varies depending on docker-py version:
     - SocketIO wrapper → ._sock attribute
     - Direct socket
     """
@@ -50,25 +50,25 @@ def _extract_socket(sock_adapter: object) -> socket.socket:
     if hasattr(sock_adapter, "fileno"):
         return sock_adapter  # type: ignore[return-value]
 
-    raise RuntimeError(f"Docker socket olishda xatolik: {type(sock_adapter)}")
+    raise RuntimeError(f"Failed to get Docker socket: {type(sock_adapter)}")
 
 
 class TerminalSession:
-    """Bitta terminal sessiya = docker exec + GNU screen.
+    """A single terminal session = docker exec + GNU screen.
 
-    screen sessiya container ichida doimiy ishlaydi.
-    WebSocket uzilsa ham screen sessiya saqlanadi.
-    Qayta ulanishda mavjud sessiyaga attach bo'ladi.
+    The screen session runs persistently inside the container.
+    Even if WebSocket disconnects, the screen session is preserved.
+    On reconnection, it attaches to the existing session.
 
-    screen ishlatilishining sababi: tmux ichida tmux ishlatib bo'lmaydi
-    (nested tmux muammosi). screen va tmux bir-biriga to'sqinlik qilmaydi,
-    shuning uchun backend screen ishlatsa, user tmux ni erkin ishlata oladi.
+    Why screen instead of tmux: tmux cannot run inside tmux
+    (nested tmux issue). screen and tmux don't interfere with each other,
+    so if the backend uses screen, the user can freely use tmux.
     """
 
     def __init__(self, container_name: str, session_id: str | None = None) -> None:
         self.container_name = container_name
         self.session_id = session_id or str(uuid.uuid4())
-        # screen session nomi
+        # screen session name
         self._screen_session = f"term_{self.session_id[:8]}"
         self._exec_id: str | None = None
         self._raw_socket: socket.socket | None = None
@@ -76,7 +76,7 @@ class TerminalSession:
         self._closed = False
 
     async def _check_existing_session(self, client: object) -> bool:
-        """Containerda mavjud screen sessiyani tekshirish."""
+        """Check for an existing screen session in the container."""
         try:
             check_result = await asyncio.to_thread(
                 client.api.exec_create,  # type: ignore[union-attr]
@@ -93,14 +93,14 @@ class TerminalSession:
             output_str = output.decode() if isinstance(output, bytes) else str(output)
             return self._screen_session in output_str
         except Exception:
-            logger.debug("screen -ls tekshirishda xatolik", exc_info=True)
+            logger.debug("Error checking screen -ls", exc_info=True)
             return False
 
     async def start(self) -> None:
-        """screen sessiya yaratib yoki mavjudiga ulanib, exec orqali attach bo'ladi."""
+        """Create a screen session or attach to an existing one via exec."""
         client = _get_docker_client()
 
-        # 1. screenrc yaratish (har doim — idempotent)
+        # 1. Create screenrc (always — idempotent)
         screenrc_result = await asyncio.to_thread(
             client.api.exec_create,
             self.container_name,
@@ -118,11 +118,11 @@ class TerminalSession:
             screenrc_result["Id"],
         )
 
-        # 2. Mavjud screen sessiyani tekshirish
+        # 2. Check for existing screen session
         session_exists = await self._check_existing_session(client)
 
         if not session_exists:
-            # Yangi screen sessiya yaratish (detached, bash shell bilan)
+            # Create new screen session (detached, with bash shell)
             create_result = await asyncio.to_thread(
                 client.api.exec_create,
                 self.container_name,
@@ -143,24 +143,24 @@ class TerminalSession:
                 client.api.exec_start,
                 create_result["Id"],
             )
-            # screen yaratilganini tekshirish
+            # Verify screen was created
             inspect = await asyncio.to_thread(
                 client.api.exec_inspect,
                 create_result["Id"],
             )
             if inspect.get("ExitCode", 1) != 0:
                 raise RuntimeError(
-                    f"screen session yaratib bo'lmadi: exit={inspect.get('ExitCode')}, "
+                    f"Failed to create screen session: exit={inspect.get('ExitCode')}, "
                     f"output={create_output}"
                 )
-            logger.debug("Yangi screen sessiya yaratildi: %s", self._screen_session)
+            logger.debug("New screen session created: %s", self._screen_session)
         else:
-            logger.debug("Mavjud screen sessiyaga ulanilmoqda: %s", self._screen_session)
+            logger.debug("Attaching to existing screen session: %s", self._screen_session)
 
-        # 3. screen sessiyaga attach bo'lish (interactive exec + socket)
-        # -d -r: avval mavjud attach ni detach qiladi (agar bor bo'lsa),
-        # keyin qayta attach bo'ladi. Bu oldingi exec to'liq yopilmagan
-        # holatda ham ishlaydi (masalan, WebSocket uzilganda).
+        # 3. Attach to screen session (interactive exec + socket)
+        # -d -r: first detaches any existing attachment (if any),
+        # then reattaches. This works even when the previous exec
+        # wasn't fully closed (e.g., WebSocket disconnection).
         exec_data = await asyncio.to_thread(
             client.api.exec_create,
             self.container_name,
@@ -186,11 +186,11 @@ class TerminalSession:
             tty=True,
         )
         self._raw_socket = _extract_socket(self._socket_adapter)
-        # Docker API default timeout ni olib tashlash
+        # Remove Docker API default timeout
         self._raw_socket.settimeout(None)
 
     async def read(self, size: int = 4096) -> bytes:
-        """Container dan ma'lumot o'qish (thread pool orqali non-blocking)."""
+        """Read data from the container (non-blocking via thread pool)."""
         if self._raw_socket is None or self._closed:
             return b""
 
@@ -203,17 +203,17 @@ class TerminalSession:
             raise
 
     async def write(self, data: bytes) -> None:
-        """Container ga ma'lumot yozish."""
+        """Write data to the container."""
         if self._raw_socket is None or self._closed:
             return
 
         await asyncio.to_thread(self._raw_socket.sendall, data)
 
     async def resize(self, rows: int, cols: int) -> None:
-        """Terminal o'lchamini o'zgartirish.
+        """Resize the terminal.
 
-        screen attach qilingan PTY o'lchamiga avtomatik moslashadi,
-        shuning uchun faqat exec resize yetarli.
+        screen automatically adapts to the PTY size of the attachment,
+        so only exec resize is needed.
         """
         if self._exec_id is None:
             return
@@ -227,10 +227,10 @@ class TerminalSession:
         )
 
     async def close(self) -> None:
-        """Socket va resurslarni yopish.
+        """Close socket and resources.
 
-        screen sessiya yopilmaydi — keyingi ulanish uchun saqlanadi.
-        Faqat attach exec socketni yopamiz.
+        The screen session is not closed — it is preserved for the next connection.
+        We only close the attach exec socket.
         """
         if self._closed:
             return
@@ -240,12 +240,12 @@ class TerminalSession:
             try:
                 await asyncio.to_thread(self._raw_socket.close)
             except Exception:
-                logger.debug("Socket yopishda xatolik", exc_info=True)
+                logger.debug("Error closing socket", exc_info=True)
             self._raw_socket = None
             self._socket_adapter = None
 
     async def kill_screen_session(self) -> None:
-        """screen sessiyani to'liq o'chirish (oyna yopilganda)."""
+        """Completely kill the screen session (when the window is closed)."""
         try:
             client = _get_docker_client()
             await asyncio.to_thread(
@@ -255,7 +255,7 @@ class TerminalSession:
                 user="aisu",
             )
         except Exception:
-            logger.debug("screen kill-session xatolik", exc_info=True)
+            logger.debug("Error killing screen session", exc_info=True)
 
     @property
     def is_closed(self) -> bool:

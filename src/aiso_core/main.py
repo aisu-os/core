@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
 
 
 async def _sync_caddy_routes() -> None:
-    """Startup: barcha active port forwardlarni Caddy ga yuklash."""
+    """Startup: load all active port forwards into Caddy."""
     import logging
 
     from sqlalchemy import select
@@ -40,7 +40,7 @@ async def _sync_caddy_routes() -> None:
         forwards = list(result.scalars().all())
 
     if not forwards:
-        logger.info("Sync: active port forward yo'q")
+        logger.info("Sync: no active port forwards")
         return
 
     route_data = [

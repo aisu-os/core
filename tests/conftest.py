@@ -105,10 +105,10 @@ def beta_token_store() -> dict[str, str]:
 
 
 class _LocalFsService:
-    """Test uchun Docker o'rniga lokal fayl tizimida ishlaydigan ContainerFsService."""
+    """ContainerFsService that operates on the local file system instead of Docker, for testing."""
 
     def __init__(self, _container_name: str, base_path: str = "/home/aisu"):
-        # base_path test vaqtida _fs_root bilan almashtiriladi
+        # base_path is replaced with _fs_root during testing
         self.base_path = base_path
 
     # -- path helpers --
@@ -389,7 +389,7 @@ class _LocalFsService:
         return count
 
     async def _exec_cmd(self, cmd: list[str]) -> tuple[str, int]:
-        """Lokal subprocess orqali buyruq bajarish."""
+        """Execute a command via local subprocess."""
         import subprocess
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -408,12 +408,12 @@ class _LocalFsService:
             counter += 1
 
 
-# Har bir test sessiyasi uchun alohida fs root yaratish
+# Create a separate fs root for each test session
 _fs_roots: dict[str, str] = {}
 
 
 def _make_local_fs_service(tmp_base: str):
-    """Factory: container_name ga qarab LocalFsService qaytaruvchi wrapper."""
+    """Factory: wrapper that returns a LocalFsService based on container_name."""
 
     original_init = _LocalFsService.__init__
 
@@ -457,7 +457,7 @@ async def client(
 
     monkeypatch.setattr(BetaAccessService, "_send_access_email", capture_beta_email)
 
-    # ContainerFsService ni lokal fayl tizimida ishlaydigan versiya bilan almashtirish
+    # Replace ContainerFsService with a version that operates on the local file system
     _fs_roots.clear()
     fs_base = str(tmp_path / "fs")
     Path(fs_base).mkdir(exist_ok=True)

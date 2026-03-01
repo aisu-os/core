@@ -18,7 +18,7 @@ async def create_beta_access_request(
     extra_text: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
-    # NOTE(beta): Bu endpoint vaqtinchalik beta early-access flow uchun.
-    # Public signup ochilganda ushbu gate olib tashlanadi.
+    # NOTE(beta): This endpoint is temporary for the beta early-access flow.
+    # This gate will be removed when public signup is enabled.
     service = BetaAccessService(db)
     return await service.create_request(email=email, extra_text=extra_text)

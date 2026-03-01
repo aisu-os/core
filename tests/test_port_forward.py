@@ -1,4 +1,4 @@
-"""Port Forward API va service testlari."""
+"""Port Forward API and service tests."""
 
 import uuid
 
@@ -198,7 +198,7 @@ class TestCreateForward:
         )
         assert resp.status_code == 201
         subdomain = resp.json()["subdomain"]
-        # adj-noun-NNN formatda bo'lishi kerak
+        # Should be in adj-noun-NNN format
         parts = subdomain.split("-")
         assert len(parts) == 3
         assert parts[2].isdigit()
@@ -277,7 +277,7 @@ class TestCreateForward:
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         user = await _create_user(db_session)
-        # Container yaratmaymiz
+        # We don't create a container
 
         resp = await client.post(
             "/api/v1/port-forwards",
@@ -299,7 +299,7 @@ class TestCreateForward:
             json={"container_port": 3000},
         )
         assert resp.status_code == 409
-        assert "ishlamayapti" in resp.json()["detail"]
+        assert "not running" in resp.json()["detail"]
 
     async def test_port_below_1024_rejected(
         self, client: AsyncClient, db_session: AsyncSession
@@ -405,7 +405,7 @@ class TestDeleteForward:
         )
         assert resp.status_code == 204
 
-        # DB dan o'chirilganini tekshirish
+        # Verify it was deleted from the DB
         result = await db_session.execute(
             select(PortForward).where(PortForward.id == forward.id)
         )
@@ -424,7 +424,7 @@ class TestDeleteForward:
         )
         assert resp.status_code == 404
 
-        # Asl forward hali DB da mavjud
+        # Original forward still exists in the DB
         result = await db_session.execute(
             select(PortForward).where(PortForward.id == forward.id)
         )

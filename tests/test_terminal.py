@@ -1,7 +1,7 @@
-"""Terminal WebSocket endpoint va TerminalSession testlari.
+"""Terminal WebSocket endpoint and TerminalSession tests.
 
-Mock Docker socket bilan ishlaydi — haqiqiy Docker kerak emas.
-GNU screen yondashuvini test qiladi.
+Works with a mock Docker socket — no real Docker required.
+Tests the GNU screen approach.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from aiso_core.utils.security import create_access_token
 
 @pytest.fixture
 def mock_socket() -> MagicMock:
-    """Mock socket — recv() va sendall() simulyatsiya qiladi."""
+    """Mock socket — simulates recv() and sendall()."""
     sock = MagicMock(spec=socket.socket)
     sock.fileno.return_value = 5
     recv_data = [b"aisu@aisu:~$ "]
@@ -49,11 +49,11 @@ def mock_socket() -> MagicMock:
 
 @pytest.fixture
 def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
-    """Mock Docker client — screen oqimini simulyatsiya qiladi."""
+    """Mock Docker client — simulates the screen stream."""
     client = MagicMock()
 
-    # exec_create har safar yangi ID qaytaradi
-    # 4 ta exec: screenrc yaratish + screen -ls check + screen create + screen attach
+    # exec_create returns a new ID each time
+    # 4 execs: screenrc setup + screen -ls check + screen create + screen attach
     exec_ids = iter(
         [
             "exec_screenrc_setup",
@@ -64,8 +64,8 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
     )
     client.api.exec_create.side_effect = lambda *a, **kw: {"Id": next(exec_ids)}
 
-    # exec_start natijalari:
-    # 1. screenrc yaratish -> bytes output
+    # exec_start results:
+    # 1. screenrc setup -> bytes output
     # 2. screen -ls check
     # 3. screen -dmS (create) -> bytes output
     # 4. screen -d -r (attach) -> socket wrapper
@@ -75,7 +75,7 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
     start_results = iter([b"", b"No Sockets found.", b"", socket_wrapper])
     client.api.exec_start.side_effect = lambda *a, **kw: next(start_results)
 
-    # exec_inspect (screen create natijasi)
+    # exec_inspect (screen create result)
     client.api.exec_inspect.return_value = {"ExitCode": 0, "Running": False}
 
     client.api.exec_resize.return_value = None
@@ -87,7 +87,7 @@ def mock_docker_client(mock_socket: MagicMock) -> MagicMock:
     return client
 
 
-# ── TerminalSession testlari ──
+# ── TerminalSession tests ──
 
 
 class TestTerminalSession:
@@ -107,29 +107,29 @@ class TestTerminalSession:
             assert session._raw_socket is mock_socket
             assert not session.is_closed
 
-            # exec_create 4 marta chaqirilishi kerak
+            # exec_create should be called 4 times
             # (screenrc + screen -ls + screen create + screen attach)
             assert mock_docker_client.api.exec_create.call_count == 4
 
-            # Birinchi — screenrc yaratish (bash -c ...)
+            # First — screenrc setup (bash -c ...)
             first_call = mock_docker_client.api.exec_create.call_args_list[0]
             first_cmd = first_call[1]["cmd"]
             assert first_cmd[0] == "bash"
             assert first_cmd[1] == "-c"
 
-            # Ikkinchi — screen -ls (mavjud sessiyani tekshirish)
+            # Second — screen -ls (check for existing session)
             second_call = mock_docker_client.api.exec_create.call_args_list[1]
             second_cmd = second_call[1]["cmd"]
             assert second_cmd[0] == "screen"
             assert "-ls" in second_cmd
 
-            # Uchinchi — screen -dmS (session yaratish)
+            # Third — screen -dmS (create session)
             third_call = mock_docker_client.api.exec_create.call_args_list[2]
             third_cmd = third_call[1]["cmd"]
             assert third_cmd[0] == "screen"
             assert "-dmS" in third_cmd
 
-            # To'rtinchi — screen -d -r (attach)
+            # Fourth — screen -d -r (attach)
             fourth_call = mock_docker_client.api.exec_create.call_args_list[3]
             fourth_cmd = fourth_call[1]["cmd"]
             assert fourth_cmd[0] == "screen"
@@ -341,9 +341,9 @@ class TestTerminalSession:
         self,
         mock_docker_client: MagicMock,
     ) -> None:
-        """screen yaratilmasa RuntimeError ko'tarilishi kerak."""
+        """Should raise RuntimeError if screen cannot be created."""
         mock_docker_client.api.exec_inspect.return_value = {"ExitCode": 1}
-        # screenrc yaratish muvaffaqiyatli, lekin screen create muvaffaqiyatsiz
+        # screenrc setup succeeds, but screen create fails
         mock_docker_client.api.exec_create.side_effect = [
             {"Id": "e_screenrc"},
             {"Id": "e_check"},
@@ -356,7 +356,7 @@ class TestTerminalSession:
             return_value=mock_docker_client,
         ):
             session = TerminalSession("aisu_test")
-            with pytest.raises(RuntimeError, match="screen session yaratib bo'lmadi"):
+            with pytest.raises(RuntimeError, match="Failed to create screen session"):
                 await session.start()
 
 
@@ -376,11 +376,11 @@ class TestExtractSocket:
 
     def test_raises_for_unknown_type(self) -> None:
         wrapper = object()
-        with pytest.raises(RuntimeError, match="Docker socket olishda xatolik"):
+        with pytest.raises(RuntimeError, match="Failed to get Docker socket"):
             _extract_socket(wrapper)
 
     def test_nested_sock_with_fileno(self) -> None:
-        """Ichma-ich wrapper — _sock.fileno() bor lekin socket.socket emas."""
+        """Nested wrapper — _sock.fileno() exists but is not socket.socket."""
         inner = MagicMock()
         inner.fileno.return_value = 7
         del inner.family
@@ -390,11 +390,11 @@ class TestExtractSocket:
         assert result is inner
 
 
-# ── WebSocket endpoint testlari ──
+# ── WebSocket endpoint tests ──
 
 
 class TestTerminalWebSocket:
-    """Terminal WebSocket endpoint integratsiya testlari."""
+    """Terminal WebSocket endpoint integration tests."""
 
     @pytest.fixture
     async def user_and_token(
@@ -421,7 +421,7 @@ class TestTerminalWebSocket:
 
     @pytest.fixture
     def mock_terminal_session(self) -> MagicMock:
-        """Barqaror mock TerminalSession."""
+        """Stable mock TerminalSession."""
         session = AsyncMock(spec=TerminalSession)
         session.session_id = "test-session-123"
         session.is_closed = False
@@ -458,7 +458,7 @@ class TestTerminalWebSocket:
         mock_terminal_session: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """WebSocket test uchun umumiy setup — monkeypatch + mock."""
+        """Common setup for WebSocket tests — monkeypatch + mock."""
         from aiso_core.main import app
 
         monkeypatch.setattr(settings, "container_enabled", False)
@@ -540,7 +540,7 @@ class TestTerminalWebSocket:
         mock_terminal_session: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """To'liq sessiya: connect → ready → input → output → disconnect."""
+        """Full session: connect → ready → input → output → disconnect."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
             async_session_factory,
@@ -623,7 +623,7 @@ class TestTerminalWebSocket:
         mock_terminal_session: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Sessiya idle davrda ham uzilmasligi kerak."""
+        """Session should not disconnect during idle period."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
             async_session_factory,
@@ -652,7 +652,7 @@ class TestTerminalWebSocket:
         mock_terminal_session: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Enter bosilganda buyruq natijasi qaytishi kerak."""
+        """Should return command output when Enter is pressed."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
             async_session_factory,
@@ -682,7 +682,7 @@ class TestTerminalWebSocket:
         mock_terminal_session: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Tez ketma-ket input da ham barcha data kelishi kerak."""
+        """All data should be received even with rapid sequential input."""
         _, token = user_and_token
         app, patches = self._setup_ws_test(
             async_session_factory,

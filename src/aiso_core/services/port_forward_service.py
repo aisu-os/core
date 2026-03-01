@@ -51,37 +51,37 @@ class PortForwardService:
         container_port: int,
         subdomain: str | None,
     ) -> PortForwardResponse:
-        # 1. Forward limit tekshirish
+        # 1. Check forward limit
         count_stmt = select(PortForward).where(PortForward.user_id == user_id)
         result = await self.db.execute(count_stmt)
         existing = list(result.scalars().all())
         if len(existing) >= MAX_FORWARDS:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Maksimum {MAX_FORWARDS} ta port forward ruxsat etilgan",
+                detail=f"Maximum {MAX_FORWARDS} port forwards allowed",
             )
 
-        # 2. Port band emasligini tekshirish
+        # 2. Check port is not already in use
         if any(f.container_port == container_port for f in existing):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Port {container_port} allaqachon forwarded",
+                detail=f"Port {container_port} is already forwarded",
             )
 
-        # 3. Subdomain tayyorlash
+        # 3. Prepare subdomain
         if subdomain is None:
             subdomain = _generate_random_subdomain()
 
-        # 4. Subdomain unikal ekanini tekshirish
+        # 4. Check subdomain uniqueness
         sub_stmt = select(PortForward).where(PortForward.subdomain == subdomain)
         sub_result = await self.db.execute(sub_stmt)
         if sub_result.scalar_one_or_none() is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Bu subdomain allaqachon band",
+                detail="This subdomain is already taken",
             )
 
-        # 5. Container IP olish
+        # 5. Get container IP
         container_stmt = select(UserContainer).where(UserContainer.user_id == user_id)
         container_result = await self.db.execute(container_stmt)
         container = container_result.scalar_one_or_none()
@@ -89,16 +89,16 @@ class PortForwardService:
         if container is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Container topilmadi",
+                detail="Container not found",
             )
 
         if container.status != "running":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Container ishlamayapti",
+                detail="Container is not running",
             )
 
-        # 6. DB ga saqlash
+        # 6. Save to DB
         forward = PortForward(
             user_id=user_id,
             subdomain=subdomain,
@@ -111,13 +111,13 @@ class PortForwardService:
         await self.db.flush()
         await self.db.refresh(forward)
 
-        # 7. Caddy route qo'shish
+        # 7. Add Caddy route
         caddy = CaddyService()
         upstream = f"{container.container_ip}:{container_port}"
         try:
             await caddy.add_route(subdomain, upstream)
         except CaddyError:
-            logger.warning("Caddy route qo'shishda xato: %s", subdomain, exc_info=True)
+            logger.warning("Failed to add Caddy route: %s", subdomain, exc_info=True)
 
         return self._to_response(forward)
 
@@ -132,12 +132,12 @@ class PortForwardService:
     ) -> None:
         forward = await self._get_user_forward(user_id, forward_id)
 
-        # Caddy route o'chirish
+        # Remove Caddy route
         caddy = CaddyService()
         try:
             await caddy.remove_route(forward.subdomain)
         except CaddyError:
-            logger.warning("Caddy route o'chirishda xato: %s", forward.subdomain, exc_info=True)
+            logger.warning("Failed to remove Caddy route: %s", forward.subdomain, exc_info=True)
 
         await self.db.delete(forward)
 
@@ -153,7 +153,7 @@ class PortForwardService:
         if forward is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Port forward topilmadi",
+                detail="Port forward not found",
             )
         return forward
 

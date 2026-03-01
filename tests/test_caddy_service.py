@@ -1,6 +1,6 @@
-"""CaddyService unit testlari.
+"""CaddyService unit tests.
 
-Caddy Admin API ga haqiqiy ulanish yo'q — httpx mock qilinadi.
+No real connection to Caddy Admin API — httpx is mocked.
 """
 
 import pytest
@@ -11,7 +11,7 @@ from aiso_core.services.caddy_service import CaddyError, CaddyService
 
 
 class TestCaddyServiceDisabled:
-    """caddy_admin_url bo'sh bo'lganda barcha metodlar no-op."""
+    """All methods are no-op when caddy_admin_url is empty."""
 
     @pytest.fixture(autouse=True)
     def _disable_caddy(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -22,7 +22,7 @@ class TestCaddyServiceDisabled:
 
     async def test_add_route_noop(self) -> None:
         caddy = CaddyService()
-        # Xato bermaydi, hech narsa qilmaydi
+        # Does not raise an error, does nothing
         await caddy.add_route("test", "172.20.0.2:3000")
 
     async def test_remove_route_noop(self) -> None:
@@ -35,7 +35,7 @@ class TestCaddyServiceDisabled:
 
 
 class TestCaddyServiceEnabled:
-    """caddy_admin_url mavjud bo'lganda — httpx mock bilan."""
+    """When caddy_admin_url is set — with httpx mock."""
 
     @pytest.fixture(autouse=True)
     def _enable_caddy(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,11 +47,11 @@ class TestCaddyServiceEnabled:
 
     async def test_add_route_success(self) -> None:
         mock_client = AsyncMock()
-        # _ensure_server: GET routes → 200 (server mavjud)
+        # _ensure_server: GET routes → 200 (server exists)
         mock_client.get.return_value = AsyncMock(status_code=200)
-        # DELETE eski route → 200
+        # DELETE old route → 200
         mock_client.delete.return_value = AsyncMock(status_code=200)
-        # POST yangi route → 200
+        # POST new route → 200
         mock_client.post.return_value = AsyncMock(status_code=200)
 
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -61,7 +61,7 @@ class TestCaddyServiceEnabled:
             caddy = CaddyService()
             await caddy.add_route("myapp", "172.20.0.5:3000")
 
-        # POST chaqirilganini tekshirish
+        # Verify POST was called
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
         assert "/routes" in call_args[0][0]
@@ -72,9 +72,9 @@ class TestCaddyServiceEnabled:
 
     async def test_add_route_creates_server_if_missing(self) -> None:
         mock_client = AsyncMock()
-        # _ensure_server: GET routes → 404 (server yo'q)
+        # _ensure_server: GET routes → 404 (server does not exist)
         mock_client.get.return_value = AsyncMock(status_code=404)
-        # _ensure_server: POST apps → 200 (server yaratildi)
+        # _ensure_server: POST apps → 200 (server created)
         mock_client.post.side_effect = [
             AsyncMock(status_code=200),  # _ensure_server POST
             AsyncMock(status_code=200),  # add_route POST
@@ -88,7 +88,7 @@ class TestCaddyServiceEnabled:
             caddy = CaddyService()
             await caddy.add_route("myapp", "172.20.0.5:3000")
 
-        # POST ikki marta chaqirildi: 1) server yaratish, 2) route qo'shish
+        # POST was called twice: 1) create server, 2) add route
         assert mock_client.post.call_count == 2
 
     async def test_add_route_failure_raises(self) -> None:
@@ -102,7 +102,7 @@ class TestCaddyServiceEnabled:
 
         with patch("aiso_core.services.caddy_service.httpx.AsyncClient", return_value=mock_client):
             caddy = CaddyService()
-            with pytest.raises(CaddyError, match="Route qo'shishda xato"):
+            with pytest.raises(CaddyError, match="Failed to add route"):
                 await caddy.add_route("fail", "1.2.3.4:80")
 
     async def test_remove_route_success(self) -> None:
@@ -120,7 +120,7 @@ class TestCaddyServiceEnabled:
         assert "pf-myapp" in mock_client.delete.call_args[0][0]
 
     async def test_remove_route_404_is_ok(self) -> None:
-        """Route allaqachon yo'q bo'lsa xato bermaydi."""
+        """Does not raise an error if the route already does not exist."""
         mock_client = AsyncMock()
         mock_client.delete.return_value = AsyncMock(status_code=404)
 
@@ -129,7 +129,7 @@ class TestCaddyServiceEnabled:
 
         with patch("aiso_core.services.caddy_service.httpx.AsyncClient", return_value=mock_client):
             caddy = CaddyService()
-            await caddy.remove_route("nonexistent")  # Xato bermaydi
+            await caddy.remove_route("nonexistent")  # Does not raise an error
 
     async def test_remove_route_500_raises(self) -> None:
         mock_client = AsyncMock()
@@ -140,7 +140,7 @@ class TestCaddyServiceEnabled:
 
         with patch("aiso_core.services.caddy_service.httpx.AsyncClient", return_value=mock_client):
             caddy = CaddyService()
-            with pytest.raises(CaddyError, match="Route o'chirishda xato"):
+            with pytest.raises(CaddyError, match="Failed to remove route"):
                 await caddy.remove_route("broken")
 
     async def test_sync_routes_calls_add_for_each(self) -> None:
@@ -156,7 +156,7 @@ class TestCaddyServiceEnabled:
         assert caddy.add_route.call_count == 2
 
     async def test_sync_routes_continues_on_error(self) -> None:
-        """Bitta route xato bo'lsa, qolganlarni davom ettiradi."""
+        """If one route fails, continues with the remaining ones."""
         caddy = CaddyService()
         caddy.add_route = AsyncMock(  # type: ignore[method-assign]
             side_effect=[CaddyError("fail"), None],

@@ -19,7 +19,7 @@ router = APIRouter()
 
 @router.get("/config")
 async def get_port_forward_config():
-    """Port forward domain konfiguratsiyasi (frontend uchun)."""
+    """Port forward domain configuration (for frontend)."""
     return {
         "domain": settings.port_forward_domain,
         "scheme": settings.port_forward_scheme,

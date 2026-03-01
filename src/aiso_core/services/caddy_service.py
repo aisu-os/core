@@ -10,13 +10,13 @@ _ROUTES_PATH = "/config/apps/http/servers/srv0/routes"
 
 
 class CaddyError(Exception):
-    """Caddy Admin API xatoligi."""
+    """Caddy Admin API error."""
 
 
 class CaddyService:
-    """Caddy Admin API client — dynamic route boshqaruvi.
+    """Caddy Admin API client — dynamic route management.
 
-    ``caddy_admin_url`` bo'sh bo'lsa barcha metodlar no-op.
+    All methods are no-op if ``caddy_admin_url`` is empty.
     """
 
     def __init__(self) -> None:
@@ -30,12 +30,12 @@ class CaddyService:
         return bool(self._base_url)
 
     async def _ensure_server(self, client: httpx.AsyncClient) -> None:
-        """HTTP server mavjud bo'lmasa yaratish (bo'sh Caddyfile uchun)."""
+        """Create HTTP server if it doesn't exist (for empty Caddyfile)."""
         resp = await client.get(f"{self._base_url}{_ROUTES_PATH}")
         if resp.status_code == 200:
             return
 
-        logger.info("Caddy srv0 mavjud emas, yaratilmoqda")
+        logger.info("Caddy srv0 not found, creating")
         resp = await client.post(
             f"{self._base_url}/config/apps",
             json={
@@ -50,14 +50,14 @@ class CaddyService:
             },
         )
         if resp.status_code not in (200, 201):
-            raise CaddyError(f"Server yaratishda xato: {resp.status_code} {resp.text}")
+            raise CaddyError(f"Failed to create server: {resp.status_code} {resp.text}")
 
     async def add_route(self, subdomain: str, upstream: str) -> None:
-        """Caddy ga reverse proxy route qo'shish.
+        """Add a reverse proxy route to Caddy.
 
         Args:
-            subdomain: masalan "my-app"
-            upstream: masalan "172.20.0.10:3000"
+            subdomain: e.g. "my-app"
+            upstream: e.g. "172.20.0.10:3000"
         """
         if not self.enabled:
             logger.debug("Caddy disabled, skipping add_route for %s", subdomain)
@@ -88,28 +88,28 @@ class CaddyService:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await self._ensure_server(client)
 
-                # Avval mavjud route ni o'chirib tashlaymiz (idempotent)
+                # First remove existing route (idempotent)
                 await client.delete(f"{self._base_url}/id/pf-{subdomain}")
 
-                # Route qo'shamiz
+                # Add route
                 resp = await client.post(
                     f"{self._base_url}{_ROUTES_PATH}",
                     json=route_config,
                 )
         except httpx.HTTPError as exc:
-            raise CaddyError(f"Caddy ulanish xatosi: {exc}") from exc
+            raise CaddyError(f"Caddy connection error: {exc}") from exc
 
         if resp.status_code not in (200, 201):
             raise CaddyError(
-                f"Route qo'shishda xato: {resp.status_code} {resp.text}"
+                f"Failed to add route: {resp.status_code} {resp.text}"
             )
 
         logger.info(
-            "Caddy route qo'shildi: %s.%s -> %s", subdomain, self._domain, upstream
+            "Caddy route added: %s.%s -> %s", subdomain, self._domain, upstream
         )
 
     async def remove_route(self, subdomain: str) -> None:
-        """Caddy dan route o'chirish (@id bo'yicha)."""
+        """Remove a route from Caddy (by @id)."""
         if not self.enabled:
             logger.debug("Caddy disabled, skipping remove_route for %s", subdomain)
             return
@@ -120,33 +120,33 @@ class CaddyService:
                     f"{self._base_url}/id/pf-{subdomain}",
                 )
         except httpx.HTTPError as exc:
-            raise CaddyError(f"Caddy ulanish xatosi: {exc}") from exc
+            raise CaddyError(f"Caddy connection error: {exc}") from exc
 
-        # 404 — route allaqachon yo'q, muammo emas
+        # 404 — route already gone, not a problem
         if resp.status_code not in (200, 404):
             raise CaddyError(
-                f"Route o'chirishda xato: {resp.status_code} {resp.text}"
+                f"Failed to remove route: {resp.status_code} {resp.text}"
             )
 
-        logger.info("Caddy route o'chirildi: pf-%s", subdomain)
+        logger.info("Caddy route removed: pf-%s", subdomain)
 
     async def sync_routes(
         self, forwards: list[dict[str, str]]
     ) -> None:
-        """Startup da barcha active forwardlarni Caddy ga yuklash.
+        """Load all active forwards into Caddy at startup.
 
         Args:
             forwards: [{"subdomain": "...", "upstream": "..."}]
         """
         if not self.enabled:
-            logger.info("Caddy disabled, route sync o'tkazib yuborildi")
+            logger.info("Caddy disabled, skipping route sync")
             return
 
-        logger.info("%d ta route Caddy ga sync qilinmoqda", len(forwards))
+        logger.info("Syncing %d routes to Caddy", len(forwards))
         for fwd in forwards:
             try:
                 await self.add_route(fwd["subdomain"], fwd["upstream"])
             except CaddyError:
                 logger.warning(
-                    "Route sync xatosi: %s", fwd["subdomain"], exc_info=True
+                    "Route sync error: %s", fwd["subdomain"], exc_info=True
                 )

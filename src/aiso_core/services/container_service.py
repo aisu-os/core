@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_mem_str(mem_str: str) -> int:
-    """Memory stringni baytlarga o'giradi (masalan '1g' -> 1073741824)."""
+    """Convert memory string to bytes (e.g. '1g' -> 1073741824)."""
     mem_str = mem_str.strip().lower()
     multipliers = {"k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
     if mem_str[-1] in multipliers:
@@ -28,14 +28,14 @@ def _parse_mem_str(mem_str: str) -> int:
 
 
 def _get_docker_client():  # noqa: ANN202
-    """Docker client yaratadi."""
+    """Create a Docker client."""
     import docker
 
     return docker.DockerClient(base_url=settings.docker_base_url)
 
 
 def _get_user_data_path(user_id: uuid.UUID) -> str:
-    """Foydalanuvchi data yo'lini absolut qilib qaytaradi."""
+    """Return the absolute path for user data."""
     return os.path.abspath(os.path.join(settings.user_data_base_path, str(user_id)))
 
 
@@ -45,7 +45,7 @@ _DOTFILES_DIR = os.path.normpath(
 
 
 def _copy_default_dotfiles(home_dir: str) -> None:
-    """Default dotfile larni home papkaga nusxalaydi (faqat mavjud bo'lmasa)."""
+    """Copy default dotfiles to the home directory (only if they don't exist)."""
     dotfiles = {
         "bashrc.default": ".bashrc",
         "profile.default": ".profile",
@@ -58,13 +58,13 @@ def _copy_default_dotfiles(home_dir: str) -> None:
 
 
 def _create_user_dirs(user_id: uuid.UUID) -> str:
-    """Foydalanuvchi direktoriyalarini yaratadi."""
+    """Create user directories."""
     base = _get_user_data_path(user_id)
     subdirs = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos", ".Trash"]
     for subdir in subdirs:
         os.makedirs(os.path.join(base, subdir), exist_ok=True)
 
-    # Default dotfile larni nusxalash (faqat mavjud bo'lmasa)
+    # Copy default dotfiles (only if they don't exist)
     _copy_default_dotfiles(base)
 
     return base
@@ -76,13 +76,13 @@ def _create_container_sync(
     disk_mb: int,
     ram_bytes: int,
 ) -> dict[str, Any]:
-    """Sinxron Docker container yaratish + start.
+    """Synchronous Docker container create + start.
 
     Args:
-        user_id: Foydalanuvchi ID
-        cpu: CPU yadro soni (User.cpu dan)
-        disk_mb: Disk hajmi MB da (User.disk dan)
-        ram_bytes: RAM hajmi baytlarda
+        user_id: User ID
+        cpu: CPU core count (from User.cpu)
+        disk_mb: Disk size in MB (from User.disk)
+        ram_bytes: RAM size in bytes
     """
     try:
         client = _get_docker_client()
@@ -133,7 +133,7 @@ def _create_container_sync(
             "status": "running",
         }
     except Exception:
-        logger.exception("Container yaratishda xatolik: user_id=%s", user_id)
+        logger.exception("Error creating container: user_id=%s", user_id)
         return {
             "container_id": None,
             "container_name": f"aisu_{user_id}",
@@ -152,7 +152,7 @@ class ContainerService:
         event_type: str,
         details: dict[str, Any] | None = None,
     ) -> None:
-        """container_events ga yozish."""
+        """Write to container_events."""
         event = ContainerEvent(
             user_id=user_id,
             event_type=event_type,
@@ -167,23 +167,23 @@ class ContainerService:
         cpu: int,
         disk_mb: int,
     ) -> UserContainer:
-        """To'liq provisioning: dirlar yaratish -> DB ga 'creating' yozish -> Docker ->
-        DB yangilash.
+        """Full provisioning: create dirs -> write 'creating' to DB -> Docker ->
+        update DB.
 
         Args:
-            user_id: Foydalanuvchi ID
-            cpu: CPU yadro soni (User.cpu dan)
-            disk_mb: Disk hajmi MB da (User.disk dan)
+            user_id: User ID
+            cpu: CPU core count (from User.cpu)
+            disk_mb: Disk size in MB (from User.disk)
         """
         # RAM = cpu * ram_per_cpu
         ram_per_cpu = _parse_mem_str(settings.container_ram_per_cpu)
         ram_bytes = cpu * ram_per_cpu
         disk_bytes = disk_mb * 1024 * 1024  # MB -> bytes
 
-        # User direktoriyalarini yaratish
+        # Create user directories
         await asyncio.to_thread(_create_user_dirs, user_id)
 
-        # DB ga "creating" holatda yozish
+        # Write to DB in "creating" state
         container_record = UserContainer(
             user_id=user_id,
             container_name=f"aisu_{user_id}",
@@ -199,10 +199,10 @@ class ContainerService:
 
         await self._log_event(user_id, "creating", {"cpu": cpu, "disk_mb": disk_mb})
 
-        # Docker container yaratish (background thread)
+        # Create Docker container (background thread)
         result = await asyncio.to_thread(_create_container_sync, user_id, cpu, disk_mb, ram_bytes)
 
-        # DB yangilash
+        # Update DB
         container_record.container_id = result["container_id"]
         container_record.container_name = result["container_name"]
         container_record.container_ip = result["container_ip"]
@@ -212,14 +212,14 @@ class ContainerService:
 
         await self.db.flush()
 
-        # Event yozish
+        # Log event
         event_type = "created" if result["status"] == "running" else "error"
         await self._log_event(user_id, event_type, result)
 
         return container_record
 
     async def get_container(self, user_id: uuid.UUID) -> UserContainer | None:
-        """DB dan UserContainer olish."""
+        """Get UserContainer from DB."""
         stmt = select(UserContainer).where(UserContainer.user_id == user_id)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
@@ -231,10 +231,10 @@ class ContainerService:
         cpu: int,
         disk_mb: int,
     ) -> UserContainer:
-        """Mavjud DB recordni saqlab, Docker containerni qaytadan yaratish.
+        """Re-create the Docker container while preserving the existing DB record.
 
-        provision_container() dan farqi: yangi UserContainer yaratmaydi,
-        mavjud recordni yangilaydi (duplicate key xatosini oldini oladi).
+        Unlike provision_container(), this does not create a new UserContainer,
+        it updates the existing record (prevents duplicate key errors).
         """
         ram_per_cpu = _parse_mem_str(settings.container_ram_per_cpu)
         ram_bytes = cpu * ram_per_cpu
@@ -268,19 +268,19 @@ class ContainerService:
         return container_record
 
     async def start_container(self, user_id: uuid.UUID, cpu: int, disk_mb: int) -> dict[str, str]:
-        """Containerni ishga tushirish.
+        """Start a container.
 
-        - DB da record yo'q → yangi provision
-        - Docker da container bor va running → darhol qaytarish
-        - Docker da container bor lekin to'xtagan → start qilish
-        - Docker da container yo'q (o'chirilgan) → re-provision (DB recordni yangilash)
+        - No DB record → new provision
+        - Docker container exists and running → return immediately
+        - Docker container exists but stopped → start it
+        - Docker container missing (deleted) → re-provision (update DB record)
         """
         container_record = await self.get_container(user_id)
         if container_record is None:
             container_record = await self.provision_container(user_id, cpu, disk_mb)
             return {"status": container_record.status, "message": "Container provisioned"}
 
-        # Docker da haqiqiy holatni tekshirish
+        # Check actual state in Docker
         try:
             docker_container = await asyncio.to_thread(
                 _get_docker_client().containers.get,
@@ -291,7 +291,7 @@ class ContainerService:
             docker_container = None
             docker_status = None
 
-        # Docker da container yo'q — qaytadan yaratish
+        # Container not in Docker — re-create
         if docker_container is None:
             logger.warning(
                 "Container not found in Docker, re-provisioning: user_id=%s",
@@ -305,7 +305,7 @@ class ContainerService:
             )
             return {"status": container_record.status, "message": "Container re-provisioned"}
 
-        # Docker da running — DB ni sinxronlash va qaytarish
+        # Running in Docker — sync DB and return
         if docker_status == "running":
             if container_record.status != "running":
                 container_record.status = "running"
@@ -313,7 +313,7 @@ class ContainerService:
                 await self.db.flush()
             return {"status": "running", "message": "Container already running"}
 
-        # Docker da bor lekin to'xtagan — start qilish
+        # Exists in Docker but stopped — start it
         try:
             await asyncio.to_thread(docker_container.start)
             await asyncio.to_thread(docker_container.reload)
@@ -331,11 +331,11 @@ class ContainerService:
             await self._log_event(user_id, "started")
             return {"status": "running", "message": "Container started"}
         except Exception:
-            logger.exception("Container start xatolik: user_id=%s", user_id)
+            logger.exception("Container start error: user_id=%s", user_id)
             return {"status": "error", "message": "Failed to start container"}
 
     async def stop_container(self, user_id: uuid.UUID) -> dict[str, str]:
-        """Containerni to'xtatish."""
+        """Stop a container."""
         container_record = await self.get_container(user_id)
         if container_record is None:
             return {"status": "error", "message": "Container not found"}
@@ -353,13 +353,13 @@ class ContainerService:
             await self._log_event(user_id, "stopped")
             return {"status": "stopped", "message": "Container stopped"}
         except Exception:
-            logger.exception("Container stop xatolik: user_id=%s", user_id)
+            logger.exception("Container stop error: user_id=%s", user_id)
             container_record.status = "error"
             await self.db.flush()
             return {"status": "error", "message": "Failed to stop container"}
 
     async def get_container_status_live(self, user_id: uuid.UUID) -> dict[str, str] | None:
-        """Docker dan real-time status olish."""
+        """Get real-time status from Docker."""
         container_record = await self.get_container(user_id)
         if container_record is None:
             return None
@@ -379,5 +379,5 @@ class ContainerService:
 
             return {"status": container_record.status, "docker_status": docker_status}
         except Exception:
-            logger.exception("Live status olishda xatolik: user_id=%s", user_id)
+            logger.exception("Error getting live status: user_id=%s", user_id)
             return {"status": container_record.status, "docker_status": "unreachable"}

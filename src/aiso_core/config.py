@@ -2,7 +2,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# aiso-core/ papkasining yo'li (src/aiso_core/config.py -> 2 daraja yuqori -> aiso-core/)
+# Path to aiso-core/ directory (src/aiso_core/config.py -> 2 levels up -> aiso-core/)
 _env_file = Path(__file__).resolve().parents[2] / ".env"
 
 
@@ -62,12 +62,12 @@ class Settings(BaseSettings):
     user_data_base_path: str = "/data/users"
     container_enabled: bool = True  # macOS dev: False
     container_cpu_period: int = 100_000  # Docker CPU period (microseconds)
-    container_ram_per_cpu: str = "1g"  # Har bir CPU uchun RAM
+    container_ram_per_cpu: str = "1g"  # RAM per CPU
     container_pids_limit: int = 64
     container_network_rate: str = "5mbit"
 
     # Port Forward / Caddy
-    caddy_admin_url: str = ""  # Bo'sh = Caddy disabled
+    caddy_admin_url: str = ""  # Empty = Caddy disabled
     port_forward_domain: str = "t.localhost"  # prod: t.aisu.run
     port_forward_scheme: str = "http"  # prod: https
 

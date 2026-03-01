@@ -1,7 +1,7 @@
-"""Docker container ichidagi fayl tizimi bilan ishlash servisi.
+"""Service for managing the file system inside a Docker container.
 
-Container ichiga Docker exec orqali buyruqlar yuborib,
-haqiqiy fayl tizimini boshqaradi.
+Sends commands via Docker exec into the container
+to manage the actual file system.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from aiso_core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# get_tree uchun container ichida bajariladigan Python script
+# Python script executed inside the container for get_tree
 _TREE_SCRIPT = """
 import json, os, mimetypes, sys
 
@@ -69,7 +69,7 @@ except Exception as e:
     sys.exit(1)
 """
 
-# list_directory uchun Python script
+# Python script for list_directory
 _LS_SCRIPT = """
 import json, os, mimetypes, sys
 
@@ -103,7 +103,7 @@ for entry in entries:
 print(json.dumps(result))
 """
 
-# stat uchun Python script
+# Python script for stat
 _STAT_SCRIPT = """
 import json, os, mimetypes, sys
 
@@ -130,7 +130,7 @@ except PermissionError:
     sys.exit(1)
 """
 
-# search uchun Python script
+# Python script for search
 _SEARCH_SCRIPT = """
 import json, os, mimetypes, sys
 
@@ -174,30 +174,30 @@ def _get_docker_client():  # noqa: ANN202
 
 
 def _validate_path(vfs_path: str) -> None:
-    """Path traversal hujumlarini oldini olish."""
+    """Prevent path traversal attacks."""
     if ".." in vfs_path.split("/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Path '..' segmentini o'z ichiga olmaydi",
+            detail="Path must not contain '..' segments",
         )
 
 
 class ContainerFsService:
-    """Docker container ichidagi fayl tizimi bilan ishlash."""
+    """Manage the file system inside a Docker container."""
 
     def __init__(self, container_name: str, base_path: str = "/home/aisu"):
         self.container_name = container_name
         self.base_path = base_path
 
     def _vfs_to_container(self, vfs_path: str) -> str:
-        """VFS path ni container ichidagi absolut path ga o'giradi."""
+        """Convert VFS path to an absolute path inside the container."""
         _validate_path(vfs_path)
         if vfs_path == "/":
             return self.base_path
         return self.base_path + vfs_path
 
     def _container_to_vfs(self, container_path: str) -> str:
-        """Container absolut path ni VFS path ga o'giradi."""
+        """Convert container absolute path to a VFS path."""
         if container_path == self.base_path or container_path == self.base_path + "/":
             return "/"
         if container_path.startswith(self.base_path + "/"):
@@ -205,7 +205,7 @@ class ContainerFsService:
         return container_path
 
     async def _exec_cmd(self, cmd: list[str]) -> tuple[str, int]:
-        """Container ichida buyruq bajarish. (stdout, exit_code) qaytaradi."""
+        """Execute a command inside the container. Returns (stdout, exit_code)."""
         client = _get_docker_client()
 
         exec_data = await asyncio.to_thread(
@@ -233,7 +233,7 @@ class ContainerFsService:
         return str(output), exit_code
 
     async def _exec_python(self, script: str) -> str:
-        """Container ichida Python script bajarish. stdout qaytaradi."""
+        """Execute a Python script inside the container. Returns stdout."""
         output, exit_code = await self._exec_cmd(
             ["python3", "-c", script],
         )
@@ -252,10 +252,10 @@ class ContainerFsService:
 
         return output.strip()
 
-    # ── O'qish operatsiyalari ──
+    # ── Read operations ──
 
     async def get_tree(self, max_depth: int = 10) -> dict:
-        """Butun fayl tizimi daraxtini JSON sifatida olish."""
+        """Get the entire file system tree as JSON."""
         script = _TREE_SCRIPT.format(
             base_path=self.base_path,
             max_depth=max_depth,
@@ -280,7 +280,7 @@ class ContainerFsService:
         return data
 
     async def list_directory(self, vfs_path: str) -> list[dict]:
-        """Papka ichidagi fayllar ro'yxatini olish."""
+        """Get the list of files in a directory."""
         _validate_path(vfs_path)
         container_path = self._vfs_to_container(vfs_path)
 
@@ -311,7 +311,7 @@ class ContainerFsService:
         return data
 
     async def stat_path(self, vfs_path: str) -> dict | None:
-        """Fayl/papka stat ma'lumotlarini olish."""
+        """Get stat information for a file/directory."""
         _validate_path(vfs_path)
         container_path = self._vfs_to_container(vfs_path)
 
@@ -320,7 +320,7 @@ class ContainerFsService:
             ["python3", "-c", script],
         )
         if exit_code != 0:
-            # not_found yoki permission_denied bo'lsa, None qaytaramiz
+            # Return None for not_found or permission_denied
             return None
 
         try:
@@ -334,18 +334,18 @@ class ContainerFsService:
         return data
 
     async def exists(self, vfs_path: str) -> bool:
-        """Path mavjudligini tekshirish."""
+        """Check if a path exists."""
         _validate_path(vfs_path)
         container_path = self._vfs_to_container(vfs_path)
         _, exit_code = await self._exec_cmd(["test", "-e", container_path])
         return exit_code == 0
 
     async def search(self, query: str, scope_vfs: str = "/") -> list[dict]:
-        """Fayl nomi bo'yicha qidirish."""
+        """Search by file name."""
         _validate_path(scope_vfs)
         scope_path = self._vfs_to_container(scope_vfs)
 
-        # query ichida injection oldini olish
+        # Prevent injection in query
         safe_query = query.replace('"', '\\"').replace("'", "\\'")
 
         script = _SEARCH_SCRIPT.format(
@@ -360,10 +360,10 @@ class ContainerFsService:
             logger.error("search JSON parse error: %s", output[:500])
             return []
 
-    # ── Yozish operatsiyalari ──
+    # ── Write operations ──
 
     async def create_file(self, vfs_path: str) -> None:
-        """Bo'sh fayl yaratish."""
+        """Create an empty file."""
         _validate_path(vfs_path)
         container_path = self._vfs_to_container(vfs_path)
         _, exit_code = await self._exec_cmd(["touch", container_path])
@@ -374,7 +374,7 @@ class ContainerFsService:
             )
 
     async def create_directory(self, vfs_path: str) -> None:
-        """Papka yaratish."""
+        """Create a directory."""
         _validate_path(vfs_path)
         container_path = self._vfs_to_container(vfs_path)
         _, exit_code = await self._exec_cmd(["mkdir", "-p", container_path])
@@ -385,7 +385,7 @@ class ContainerFsService:
             )
 
     async def rename(self, old_vfs: str, new_vfs: str) -> None:
-        """Fayl/papkani qayta nomlash."""
+        """Rename a file/directory."""
         _validate_path(old_vfs)
         _validate_path(new_vfs)
         old_path = self._vfs_to_container(old_vfs)
@@ -398,7 +398,7 @@ class ContainerFsService:
             )
 
     async def move(self, source_vfs: str, dest_parent_vfs: str) -> str:
-        """Faylni boshqa papkaga ko'chirish. Yangi VFS path qaytaradi."""
+        """Move a file to another directory. Returns the new VFS path."""
         _validate_path(source_vfs)
         _validate_path(dest_parent_vfs)
         source_path = self._vfs_to_container(source_vfs)
@@ -409,14 +409,14 @@ class ContainerFsService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to move: {source_vfs} → {dest_parent_vfs}",
             )
-        # Yangi path: dest_parent + source_name
+        # New path: dest_parent + source_name
         source_name = source_vfs.rsplit("/", 1)[-1]
         if dest_parent_vfs == "/":
             return f"/{source_name}"
         return f"{dest_parent_vfs}/{source_name}"
 
     async def copy(self, source_vfs: str, dest_parent_vfs: str) -> str:
-        """Faylni nusxalash. Yangi VFS path qaytaradi."""
+        """Copy a file. Returns the new VFS path."""
         _validate_path(source_vfs)
         _validate_path(dest_parent_vfs)
         source_path = self._vfs_to_container(source_vfs)
@@ -433,7 +433,7 @@ class ContainerFsService:
         return f"{dest_parent_vfs}/{source_name}"
 
     async def delete(self, vfs_path: str) -> None:
-        """Faylni butunlay o'chirish."""
+        """Permanently delete a file."""
         _validate_path(vfs_path)
         if vfs_path == "/":
             raise HTTPException(
@@ -449,7 +449,7 @@ class ContainerFsService:
             )
 
     async def move_to_trash(self, vfs_path: str) -> str:
-        """Faylni /.Trash/ ga ko'chirish. Trash ichidagi yangi VFS path qaytaradi."""
+        """Move a file to /.Trash/. Returns the new VFS path inside trash."""
         _validate_path(vfs_path)
         if vfs_path == "/":
             raise HTTPException(
@@ -461,7 +461,7 @@ class ContainerFsService:
         trash_vfs = f"/.Trash/{name}"
         trash_container = self._vfs_to_container(trash_vfs)
 
-        # Agar nom takrorlansa, unikal nom yaratish
+        # If name already exists, generate a unique name
         if await self.exists(trash_vfs):
             counter = 2
             while await self.exists(f"/.Trash/{name} {counter}"):
@@ -470,7 +470,7 @@ class ContainerFsService:
             trash_vfs = f"/.Trash/{name}"
             trash_container = self._vfs_to_container(trash_vfs)
 
-        # .Trash papkasi mavjudligini ta'minlash
+        # Ensure .Trash directory exists
         await self.create_directory("/.Trash")
 
         source_path = self._vfs_to_container(vfs_path)
@@ -483,13 +483,13 @@ class ContainerFsService:
         return trash_vfs
 
     async def empty_trash(self) -> int:
-        """Trash papkasini tozalash. O'chirilgan fayllar sonini qaytaradi."""
+        """Empty the trash directory. Returns the number of deleted files."""
         trash_path = self._vfs_to_container("/.Trash")
-        # Avval nechta element borligini sanash
+        # Count how many items exist first
         items = await self.list_directory("/.Trash")
         count = len(items)
         if count > 0:
-            # Trash ichidagi hamma narsani o'chirish
+            # Delete everything inside trash
             _, exit_code = await self._exec_cmd(["sh", "-c", f"rm -rf {shlex.quote(trash_path)}/*"])
             if exit_code != 0:
                 raise HTTPException(
@@ -499,7 +499,7 @@ class ContainerFsService:
         return count
 
     async def read_file(self, vfs_path: str, max_size: int = 2 * 1024 * 1024) -> dict:
-        """Fayl kontentini o'qish. UTF-8 matn fayllar uchun.
+        """Read file content. For UTF-8 text files.
 
         Returns: {"content": str, "size": int, "encoding": "utf-8"}
         Raises: 404 (not found), 400 (directory), 413 (too large), 415 (binary)
@@ -571,11 +571,11 @@ except UnicodeDecodeError:
         return data
 
     async def write_file(self, vfs_path: str, content: str) -> None:
-        """Fayl kontentini yozish. Fayl mavjud bo'lmasa yaratadi."""
+        """Write file content. Creates the file if it doesn't exist."""
         _validate_path(vfs_path)
         container_path = self._vfs_to_container(vfs_path)
 
-        # Base64 orqali xavfsiz uzatish (matnda maxsus belgilar bo'lishi mumkin)
+        # Safe transfer via Base64 (text may contain special characters)
         import base64
 
         encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
@@ -616,7 +616,7 @@ except Exception as e:
             )
 
     async def generate_unique_name(self, parent_vfs: str, base_name: str) -> str:
-        """Papka ichida unikal nom yaratish."""
+        """Generate a unique name within a directory."""
         _validate_path(parent_vfs)
         check_path = f"{parent_vfs}/{base_name}" if parent_vfs != "/" else f"/{base_name}"
         if not await self.exists(check_path):

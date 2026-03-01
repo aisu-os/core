@@ -25,7 +25,7 @@ class SystemAppService:
         self.db = db
 
     async def ensure_system_user(self) -> User:
-        """System user mavjudligini tekshiradi, yo'q bo'lsa yaratadi."""
+        """Check if system user exists, create if not."""
         user = await self.db.get(User, SYSTEM_USER_ID)
         if user is not None:
             return user
@@ -47,7 +47,7 @@ class SystemAppService:
         return user
 
     async def seed_system_apps(self) -> int:
-        """Tizim ilovalarini bazaga seed qiladi. Idempotent."""
+        """Seed system apps into the database. Idempotent."""
         system_user = await self.ensure_system_user()
         created = 0
 
@@ -86,7 +86,7 @@ class SystemAppService:
         return created
 
     async def install_system_apps_for_user(self, user_id: uuid.UUID) -> int:
-        """Tizim ilovalarini foydalanuvchiga o'rnatadi. Idempotent."""
+        """Install system apps for a user. Idempotent."""
         installed = 0
         now = datetime.now(UTC)
 
