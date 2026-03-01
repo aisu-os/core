@@ -39,6 +39,10 @@ async def _sync_caddy_routes() -> None:
     from aiso_core.services.caddy_service import CaddyService
 
     logger = logging.getLogger(__name__)
+    if not settings.container_enabled:
+        logger.info("Sync: skipped because containers are disabled")
+        return
+
     caddy = CaddyService()
     if not caddy.enabled:
         return
