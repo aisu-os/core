@@ -81,8 +81,12 @@ class Settings(BaseSettings):
 
     # Port Forward / Caddy
     caddy_admin_url: str = ""  # Empty = Caddy disabled
+    caddy_api_domain: str = ""  # API domain for Caddy reverse proxy (e.g. api.aisu.run)
+    caddy_api_upstream: str = "localhost:8890"  # API upstream (Docker: api:8890)
     port_forward_domain: str = "t.localhost"  # prod: t.aisu.run
     port_forward_scheme: str = "http"  # prod: https
+    caddy_tls_cert: str = ""  # Container path to TLS cert (e.g. /etc/caddy/certs/origin.pem)
+    caddy_tls_key: str = ""  # Container path to TLS key (e.g. /etc/caddy/certs/origin-key.pem)
 
     # Sentry
     sentry_dsn: str = ""

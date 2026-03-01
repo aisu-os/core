@@ -64,11 +64,13 @@ async def _sync_caddy_routes() -> None:
 
 
 def create_app() -> FastAPI:
+    is_prod = settings.environment == "production"
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url=None if is_prod else "/docs",
+        redoc_url=None if is_prod else "/redoc",
+        openapi_url=None if is_prod else "/openapi.json",
         lifespan=lifespan,
     )
 

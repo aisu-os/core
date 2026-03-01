@@ -1,0 +1,37 @@
+# Production override — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+
+  api:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://aisu:${POSTGRES_PASSWORD}@db:5432/aisu
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      ENVIRONMENT: production
+      DEBUG: "false"
+      CORS_ORIGINS: '["https://app.aisu.run"]'
+      RATE_LIMIT_BACKEND: redis
+      RATE_LIMIT_REDIS_URL: redis://redis:6379/0
+      CONTAINER_ENABLED: "true"
+      CADDY_ADMIN_URL: http://caddy:2019
+      CADDY_API_DOMAIN: api.aisu.run
+      CADDY_API_UPSTREAM: api:8890
+      PORT_FORWARD_DOMAIN: t.aisu.run
+      PORT_FORWARD_SCHEME: https
+      CADDY_TLS_CERT: /etc/caddy/certs/origin.pem
+      CADDY_TLS_KEY: /etc/caddy/certs/origin-key.pem
+      BETA_ACCESS_ENABLED: ${BETA_ACCESS_ENABLED:-true}
+      BETA_REGISTER_URL: https://app.aisu.run/register
+      SENTRY_DSN: ${SENTRY_DSN:-}
+
+  caddy:
+    ports:
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - ./caddy/certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config

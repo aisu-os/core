@@ -30,6 +30,9 @@ htmlcov/
 # ruff
 .ruff_cache/
 
+# TLS certificates
+caddy/certs/
+
 # OS
 .DS_Store
 Thumbs.db

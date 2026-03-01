@@ -4,6 +4,7 @@ import uuid
 from fastapi import HTTPException, UploadFile, status
 from pydantic import EmailStr, TypeAdapter
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aiso_core.config import settings
@@ -95,46 +96,61 @@ class AuthService:
 
         # Atomic transaction via savepoint: user creation, container
         # provisioning and beta token marking commit/rollback together.
-        async with self.db.begin_nested():
-            user = User(
-                id=user_id,
-                email=normalized_email,
-                username=username,
-                display_name=display_name,
-                hashed_password=hash_password(password),
-                avatar_url=avatar_url,
-                cpu=settings.default_user_cpu,
-                disk=settings.default_user_disk,
-                wallpaper=None,
-            )
-            self.db.add(user)
-            await self.db.flush()
-            await self.db.refresh(user)
-
-            # Install system apps for the new user
-            from aiso_core.services.system_app_service import SystemAppService
-
-            system_app_service = SystemAppService(self.db)
-            await system_app_service.install_system_apps_for_user(user_id)
-
-            # Container provisioning (synchronous — user waits)
-            # _create_user_dirs() creates directories when container is created
-            container_status = "disabled"
-            if settings.container_enabled:
-                from aiso_core.services.container_service import ContainerService
-
-                container_service = ContainerService(self.db)
-                container = await container_service.provision_container(
-                    user_id, cpu=user.cpu, disk_mb=user.disk
+        # DB-level unique constraints guard against race conditions —
+        # IntegrityError is caught and mapped to a friendly 409.
+        try:
+            async with self.db.begin_nested():
+                user = User(
+                    id=user_id,
+                    email=normalized_email,
+                    username=username,
+                    display_name=display_name,
+                    hashed_password=hash_password(password),
+                    avatar_url=avatar_url,
+                    cpu=settings.default_user_cpu,
+                    disk=settings.default_user_disk,
+                    wallpaper=None,
                 )
-                container_status = container.status
+                self.db.add(user)
+                await self.db.flush()
+                await self.db.refresh(user)
 
-            if (
-                settings.beta_access_enabled
-                and beta_request is not None
-                and beta_service is not None
-            ):
-                await beta_service.mark_token_used(beta_request)
+                # Install system apps for the new user
+                from aiso_core.services.system_app_service import SystemAppService
+
+                system_app_service = SystemAppService(self.db)
+                await system_app_service.install_system_apps_for_user(user_id)
+
+                # Container provisioning (synchronous — user waits)
+                # _create_user_dirs() creates directories when container is created
+                container_status = "disabled"
+                if settings.container_enabled:
+                    from aiso_core.services.container_service import ContainerService
+
+                    container_service = ContainerService(self.db)
+                    container = await container_service.provision_container(
+                        user_id, cpu=user.cpu, disk_mb=user.disk
+                    )
+                    container_status = container.status
+
+                if (
+                    settings.beta_access_enabled
+                    and beta_request is not None
+                    and beta_service is not None
+                ):
+                    await beta_service.mark_token_used(beta_request)
+        except IntegrityError as exc:
+            constraint = getattr(exc.orig, "constraint_name", "") or ""
+            if "email" in constraint:
+                detail = "This email is already registered"
+            elif "username" in constraint:
+                detail = "This username is already taken"
+            else:
+                detail = "This email or username is already taken"
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=detail,
+            ) from exc
 
         return RegisterResponse(
             username=user.username,
