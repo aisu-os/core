@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -8,6 +9,14 @@ from fastapi.staticfiles import StaticFiles
 from aiso_core.api.router import api_router
 from aiso_core.api.v1.terminal import router as terminal_ws_router
 from aiso_core.config import settings
+
+if settings.sentry_dsn and settings.environment == "production":
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        traces_sample_rate=0.2,
+        send_default_pii=False,
+    )
 
 
 @asynccontextmanager

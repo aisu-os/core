@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     port_forward_domain: str = "t.localhost"  # prod: t.aisu.run
     port_forward_scheme: str = "http"  # prod: https
 
+    # Sentry
+    sentry_dsn: str = ""
+
     # Rate limiting
     rate_limit_backend: str = "memory"  # "memory" or "redis"
     rate_limit_redis_url: str = "redis://localhost:6379/0"
