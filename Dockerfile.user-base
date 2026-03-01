@@ -78,6 +78,11 @@ RUN chown aisu:aisu /home/aisu/.bashrc
 COPY docker/user-base/tmux.conf /home/aisu/.tmux.conf
 RUN chown aisu:aisu /home/aisu/.tmux.conf
 
+# Skeleton — default home snapshot (bind mount dan keyin tiklash uchun)
+RUN mkdir -p /etc/aisu-skel \
+    && cp -a /home/aisu/. /etc/aisu-skel/ \
+    && chown -R aisu:aisu /etc/aisu-skel
+
 # Entrypoint
 COPY docker/user-base/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

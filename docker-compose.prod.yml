@@ -26,7 +26,7 @@ services:
       CADDY_TLS_CERT: /etc/caddy/certs/origin.pem
       CADDY_TLS_KEY: /etc/caddy/certs/origin-key.pem
       BETA_ACCESS_ENABLED: ${BETA_ACCESS_ENABLED:-true}
-      BETA_REGISTER_URL: https://app.aisu.run/register
+      BETA_REGISTER_URL: https://app.aisu.run
       SENTRY_DSN: ${SENTRY_DSN:-}
       SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
       SMTP_PORT: ${SMTP_PORT:-465}

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import shutil
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -39,34 +38,17 @@ def _get_user_data_path(user_id: uuid.UUID) -> str:
     return os.path.abspath(os.path.join(settings.user_data_base_path, str(user_id)))
 
 
-_DOTFILES_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "docker", "user-base")
-)
-
-
-def _copy_default_dotfiles(home_dir: str) -> None:
-    """Copy default dotfiles to the home directory (only if they don't exist)."""
-    dotfiles = {
-        "bashrc.default": ".bashrc",
-        "profile.default": ".profile",
-    }
-    for src_name, dest_name in dotfiles.items():
-        src = os.path.join(_DOTFILES_DIR, src_name)
-        dest = os.path.join(home_dir, dest_name)
-        if not os.path.exists(dest) and os.path.exists(src):
-            shutil.copy2(src, dest)
-
-
 def _create_user_dirs(user_id: uuid.UUID) -> str:
-    """Create user directories."""
+    """Create user directories on the host.
+
+    Creates the base directory and standard subdirectories.
+    Dotfiles and any missing items are initialized by the
+    container entrypoint from /etc/aisu-skel.
+    """
     base = _get_user_data_path(user_id)
     subdirs = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos", ".Trash"]
     for subdir in subdirs:
         os.makedirs(os.path.join(base, subdir), exist_ok=True)
-
-    # Copy default dotfiles (only if they don't exist)
-    _copy_default_dotfiles(base)
-
     return base
 
 
