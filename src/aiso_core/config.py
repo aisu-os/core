@@ -45,7 +45,7 @@ class Settings(BaseSettings):
             )
         return self
     beta_access_enabled: bool = True
-    beta_register_url: str = "http://localhost:5174/register"
+    beta_register_url: str = "https://app.aisu.run"
     beta_token_expire_hours: int = 72
 
     # SMTP (beta invite email)
@@ -55,9 +55,14 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from_email: str = "no-reply@aisu.local"
     smtp_use_tls: bool = True
+    smtp_ssl: bool = False  # True = SMTP_SSL (port 465), False = STARTTLS (port 587)
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:5174", "http://localhost:4173"]
+    cors_origins: list[str] = [
+        "http://localhost:5174",
+        "http://localhost:4173",
+        "http://localhost:3000",
+    ]
 
     # File storage
     upload_dir: str = "./uploads"

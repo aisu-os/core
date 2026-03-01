@@ -159,14 +159,18 @@ class BetaAccessService:
         )
 
         try:
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as smtp:
+            if settings.smtp_ssl:
+                conn = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=20)
+            else:
+                conn = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
                 if settings.smtp_use_tls:
-                    smtp.starttls()
+                    conn.starttls()
 
+            with conn:
                 if settings.smtp_username and settings.smtp_password:
-                    smtp.login(settings.smtp_username, settings.smtp_password)
+                    conn.login(settings.smtp_username, settings.smtp_password)
 
-                smtp.send_message(message)
+                conn.send_message(message)
         except Exception as err:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
