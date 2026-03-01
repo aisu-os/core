@@ -28,10 +28,10 @@ def _parse_mem_str(mem_str: str) -> int:
 
 
 def _get_docker_client():  # noqa: ANN202
-    """Create a Docker client."""
-    import docker
+    """Return the shared Docker client singleton."""
+    from aiso_core.services.docker_client import get_docker_client
 
-    return docker.DockerClient(base_url=settings.docker_base_url)
+    return get_docker_client()
 
 
 def _get_user_data_path(user_id: uuid.UUID) -> str:
@@ -344,9 +344,12 @@ class ContainerService:
             return {"status": "stopped", "message": "Container already stopped"}
 
         try:
-            client = _get_docker_client()
-            docker_container = client.containers.get(container_record.container_name)
-            docker_container.stop(timeout=10)
+            def _stop_sync() -> None:
+                client = _get_docker_client()
+                docker_container = client.containers.get(container_record.container_name)
+                docker_container.stop(timeout=10)
+
+            await asyncio.to_thread(_stop_sync)
 
             container_record.status = "stopped"
             await self.db.flush()
@@ -368,10 +371,13 @@ class ContainerService:
             return {"status": container_record.status, "docker_status": "unknown"}
 
         try:
-            client = _get_docker_client()
-            docker_container = client.containers.get(container_record.container_id)
-            docker_container.reload()
-            docker_status = docker_container.status
+            def _get_status_sync() -> str:
+                client = _get_docker_client()
+                docker_container = client.containers.get(container_record.container_id)
+                docker_container.reload()
+                return docker_container.status
+
+            docker_status = await asyncio.to_thread(_get_status_sync)
 
             if docker_status != container_record.status:
                 container_record.status = docker_status

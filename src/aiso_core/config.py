@@ -1,9 +1,13 @@
+import secrets
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Path to aiso-core/ directory (src/aiso_core/config.py -> 2 levels up -> aiso-core/)
 _env_file = Path(__file__).resolve().parents[2] / ".env"
+
+_INSECURE_DEFAULT_KEY = "change-me-in-production"
 
 
 class Settings(BaseSettings):
@@ -28,9 +32,18 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://aisu:aisu@localhost:5432/aisu"
 
     # Auth / JWT
-    secret_key: str = "change-me-in-production"
+    secret_key: str = _INSECURE_DEFAULT_KEY
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
+
+    @model_validator(mode="after")
+    def _validate_secret_key(self) -> "Settings":
+        if self.environment == "production" and self.secret_key == _INSECURE_DEFAULT_KEY:
+            raise ValueError(
+                "SECRET_KEY must be set to a secure value in production. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+            )
+        return self
     beta_access_enabled: bool = True
     beta_register_url: str = "http://localhost:5174/register"
     beta_token_expire_hours: int = 72

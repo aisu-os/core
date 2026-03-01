@@ -26,9 +26,9 @@ _SCREENRC_CONTENT = (
 
 
 def _get_docker_client():  # noqa: ANN202
-    import docker
+    from aiso_core.services.docker_client import get_docker_client
 
-    return docker.DockerClient(base_url=settings.docker_base_url)
+    return get_docker_client()
 
 
 def _extract_socket(sock_adapter: object) -> socket.socket:
@@ -248,12 +248,13 @@ class TerminalSession:
         """Completely kill the screen session (when the window is closed)."""
         try:
             client = _get_docker_client()
-            await asyncio.to_thread(
+            exec_id = await asyncio.to_thread(
                 client.api.exec_create,
                 self.container_name,
                 cmd=["screen", "-S", self._screen_session, "-X", "quit"],
                 user="aisu",
             )
+            await asyncio.to_thread(client.api.exec_start, exec_id)
         except Exception:
             logger.debug("Error killing screen session", exc_info=True)
 

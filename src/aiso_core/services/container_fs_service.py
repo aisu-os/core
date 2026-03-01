@@ -168,9 +168,9 @@ print(json.dumps(results))
 
 
 def _get_docker_client():  # noqa: ANN202
-    import docker
+    from aiso_core.services.docker_client import get_docker_client
 
-    return docker.DockerClient(base_url=settings.docker_base_url)
+    return get_docker_client()
 
 
 def _validate_path(vfs_path: str) -> None:
